@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # api-gateway:
+  #   build: ./api-gateway
+  #   ports:
+  #     - "8080:8080"
+  
+  # auth-service:
+  #   build: ./auth-service
+  #   ports:
+  #     - "3001:3001"
+
+  # user-service:
+  #   build: ./user-service
+  #   ports:
+  #     - "3002:3002"
+
+  # chat-service:
+  #   build: ./chat-service
+  #   ports:
+  #     - "3003:3003"
+
+  # realtime-service:
+  #   build: ./realtime-service
+  #   ports:
+  #     - "3004:3004"
+
+  # notification-service:
+  #   build: ./notification-service
+  #   ports:
+  #     - "3005:3005"
