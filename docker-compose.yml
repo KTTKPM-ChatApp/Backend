@@ -1,32 +1,70 @@
 version: '3.8'
 
 services:
-  # api-gateway:
-  #   build: ./api-gateway
-  #   ports:
-  #     - "8080:8080"
-  
-  # auth-service:
-  #   build: ./auth-service
-  #   ports:
-  #     - "3001:3001"
+  postgres:
+    image: postgres:16-alpine
+    container_name: ktpm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chat_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chat_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # user-service:
-  #   build: ./user-service
-  #   ports:
-  #     - "3002:3002"
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ktpm-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # chat-service:
-  #   build: ./chat-service
-  #   ports:
-  #     - "3003:3003"
+  chat-service:
+    build:
+      context: ./chat-service
+      dockerfile: Dockerfile
+    container_name: ktpm-chat-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      PORT: 3003
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: chat_service
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_SSL: "false"
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_EXCHANGE: chat.events
+      RABBITMQ_ROUTING_KEY_NEW_MESSAGE: chat.new_message
+      OUTBOX_BATCH_SIZE: 50
+      OUTBOX_POLL_INTERVAL_MS: 5000
+    ports:
+      - "3003:3003"
 
-  # realtime-service:
-  #   build: ./realtime-service
-  #   ports:
-  #     - "3004:3004"
-
-  # notification-service:
-  #   build: ./notification-service
-  #   ports:
-  #     - "3005:3005"
+volumes:
+  postgres_data:
+  rabbitmq_data:
