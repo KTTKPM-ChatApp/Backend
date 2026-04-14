@@ -8,6 +8,8 @@ export interface CreateMessagePersistenceParams {
   senderId: string;
   contentType: MessageContentType;
   content: string;
+  replyToMessageId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface MessageListResult {

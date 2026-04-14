@@ -26,6 +26,10 @@ export interface MessageResponse {
   senderId: string;
   contentType: string;
   content: string;
+  replyToMessageId: string | null;
+  isDeleted: boolean;
+  editedAt: Date | null;
+  metadata: Record<string, unknown> | null;
   createdAt: Date;
 }
 
@@ -59,6 +63,10 @@ export function toMessageResponse(message: Message): MessageResponse {
     senderId: message.senderId,
     contentType: message.contentType,
     content: message.content,
+    replyToMessageId: message.replyToMessageId,
+    isDeleted: message.isDeleted,
+    editedAt: message.editedAt,
+    metadata: message.metadata,
     createdAt: message.createdAt,
   };
 }

@@ -6,7 +6,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { ConversationType } from '../../../domain/enums/conversation-type.enum';
+import { ConversationType } from '../../../../domain/enums/conversation-type.enum';
 
 export class CreateConversationDto {
   @IsEnum(ConversationType)
