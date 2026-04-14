@@ -25,6 +25,8 @@ export interface SendMessageCommand {
   conversationId: string;
   contentType: MessageContentType;
   content: string;
+  replyToMessageId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 @Injectable()
@@ -74,6 +76,8 @@ export class SendMessageUseCase {
             senderId: command.currentUserId,
             contentType: command.contentType,
             content: normalizedContent,
+            replyToMessageId: command.replyToMessageId,
+            metadata: command.metadata,
           },
           context,
         );
@@ -99,6 +103,8 @@ export class SendMessageUseCase {
           participantIds: conversation.memberIds,
           contentType: createdMessage.contentType,
           content: createdMessage.content,
+          replyToMessageId: createdMessage.replyToMessageId,
+          metadata: createdMessage.metadata,
           createdAt: createdMessage.createdAt.toISOString(),
         };
 

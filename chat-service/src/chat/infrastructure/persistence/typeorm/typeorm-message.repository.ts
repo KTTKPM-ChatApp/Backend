@@ -29,6 +29,8 @@ export class TypeOrmMessageRepository implements MessageRepository {
       senderId: params.senderId,
       contentType: params.contentType,
       content: params.content,
+      replyToMessageId: params.replyToMessageId ?? null,
+      metadata: params.metadata ?? null,
     });
 
     await repository.save(createdMessage);
@@ -75,6 +77,11 @@ export class TypeOrmMessageRepository implements MessageRepository {
       senderId: row.senderId,
       contentType: row.contentType,
       content: row.content,
+      replyToMessageId: row.replyToMessageId,
+      isDeleted: row.isDeleted,
+      deletedAt: row.deletedAt,
+      editedAt: row.editedAt,
+      metadata: row.metadata,
       createdAt: row.createdAt,
     };
   }

@@ -3,6 +3,8 @@ import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConversationMemberOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/conversation-member.orm-entity';
 import { ConversationOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/conversation.orm-entity';
 import { MessageOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/message.orm-entity';
+import { MessageReadReceiptOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/message-read-receipt.orm-entity';
+import { MessageReactionOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/message-reaction.orm-entity';
 import { OutboxEventOrmEntity } from '../chat/infrastructure/persistence/typeorm/entities/outbox-event.orm-entity';
 
 export function getTypeOrmOptions(
@@ -20,6 +22,8 @@ export function getTypeOrmOptions(
       ConversationOrmEntity,
       ConversationMemberOrmEntity,
       MessageOrmEntity,
+      MessageReadReceiptOrmEntity,
+      MessageReactionOrmEntity,
       OutboxEventOrmEntity,
     ],
     migrations: ['dist/database/migrations/*.js'],

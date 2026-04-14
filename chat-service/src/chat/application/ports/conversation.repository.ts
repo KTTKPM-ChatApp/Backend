@@ -13,6 +13,7 @@ export interface CreateConversationPersistenceParams {
   createdBy: string;
   directKey: string | null;
   memberIds: string[];
+  adminIds?: string[]; // Người tạo và các admin khác (cho group chat)
 }
 
 export interface ConversationListResult {

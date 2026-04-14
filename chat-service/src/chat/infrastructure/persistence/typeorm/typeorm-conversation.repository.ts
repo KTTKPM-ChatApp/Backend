@@ -113,16 +113,14 @@ export class TypeOrmConversationRepository implements ConversationRepository {
           userId: params.userId,
         },
       )
-      .orderBy(
-        'COALESCE(conversation.last_message_at, conversation.updated_at)',
-        'DESC',
-      )
+      .addOrderBy('conversation.lastMessageAt', 'DESC')
+      .addOrderBy('conversation.updatedAt', 'DESC')
       .addOrderBy('conversation.id', 'DESC')
       .take(params.limit + 1);
 
     if (params.cursor) {
       queryBuilder.andWhere(
-        '(COALESCE(conversation.last_message_at, conversation.updated_at) < :activityAt OR (COALESCE(conversation.last_message_at, conversation.updated_at) = :activityAt AND conversation.id < :conversationId))',
+        '(conversation.lastMessageAt < :activityAt OR (conversation.lastMessageAt IS NULL AND conversation.updatedAt < :activityAt) OR (conversation.lastMessageAt = :activityAt AND conversation.id < :conversationId))',
         {
           activityAt: params.cursor.activityAt,
           conversationId: params.cursor.conversationId,
