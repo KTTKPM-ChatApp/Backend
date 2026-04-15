@@ -54,7 +54,7 @@ public class RealtimeController {
             @RequestBody MessageNotificationRequest notification,
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
         
-        if (!validateInternalApiKey(apiKey)) {
+        if (validateInternalApiKey(apiKey)) {
             logger.warn("Unauthorized internal message notification attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -73,7 +73,7 @@ public class RealtimeController {
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey,
             @RequestHeader(value = "user-id") String userId) {
         
-        if (!validateInternalApiKey(apiKey)) {
+        if (validateInternalApiKey(apiKey)) {
             logger.warn("Unauthorized online status check attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -88,7 +88,7 @@ public class RealtimeController {
     public ResponseEntity<ApiResponse<Integer>> getOnlineUserCount(
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
         
-        if (!validateInternalApiKey(apiKey)) {
+        if (validateInternalApiKey(apiKey)) {
             logger.warn("Unauthorized stats request attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -102,9 +102,9 @@ public class RealtimeController {
     private boolean validateInternalApiKey(String apiKey) {
         if (internalApiKey == null || internalApiKey.isBlank()) {
             logger.warn("Internal API key not configured");
-            return false;
+            return true;
         }
-        return internalApiKey.equals(apiKey);
+        return !internalApiKey.equals(apiKey);
     }
 }
 
