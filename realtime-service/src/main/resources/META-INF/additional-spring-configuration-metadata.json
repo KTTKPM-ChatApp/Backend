@@ -1,0 +1,48 @@
+{
+  "properties": [
+    {
+      "name": "presence.store",
+      "type": "java.lang.String",
+      "description": "Presence backend storage mode.",
+      "defaultValue": "memory"
+    },
+    {
+      "name": "app.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Comma-separated list of allowed origins for WebSocket CORS.",
+      "defaultValue": "*"
+    },
+    {
+      "name": "app.internal-api-key",
+      "type": "java.lang.String",
+      "description": "Internal API key for trusted service-to-service endpoints."
+    },
+    {
+      "name": "app.version",
+      "type": "java.lang.String",
+      "description": "Application version label.",
+      "defaultValue": "1.0.0"
+    },
+    {
+      "name": "jwt.secret",
+      "type": "java.lang.String",
+      "description": "JWT signing secret used to validate incoming tokens."
+    }
+  ],
+  "hints": [
+    {
+      "name": "presence.store",
+      "values": [
+        {
+          "value": "memory",
+          "description": "Use in-memory presence repository."
+        },
+        {
+          "value": "redis",
+          "description": "Use Redis-backed presence repository."
+        }
+      ]
+    }
+  ]
+}
+
