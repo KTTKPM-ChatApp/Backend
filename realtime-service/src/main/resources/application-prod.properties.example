@@ -1,0 +1,41 @@
+# This is an EXAMPLE file for production configuration
+# Copy this to application-prod.properties and inject actual values via environment variables
+# DO NOT commit application-prod.properties to version control
+# DO NOT hardcode secrets in this file
+
+# Production application settings - all secrets should come from environment variables
+# Example: export INTERNAL_API_KEY="your-production-secret-key"
+app.internal-api-key=${INTERNAL_API_KEY:}
+
+# Logging level for production (less verbose)
+logging.level.chatapp.realtimeservice=WARN
+logging.level.org.springframework=WARN
+
+# Production profile - use Redis for presence store to support multiple instances
+presence.store=redis
+
+# Redis configuration - inject via environment variables
+# Example:
+#   export REDIS_HOST="redis.example.com"
+#   export REDIS_PORT="6379"
+#   export REDIS_PASSWORD="your-redis-password"
+spring.data.redis.host=${REDIS_HOST:}
+spring.data.redis.port=${REDIS_PORT:6379}
+spring.data.redis.password=${REDIS_PASSWORD:}
+
+# JWT secret - inject via environment variable
+# Example: export JWT_SECRET="your-jwt-secret-key"
+jwt.secret=${JWT_SECRET:}
+
+# CORS settings for production - specify allowed origins explicitly
+# Example: app.allowed-origins=https://app.example.com,https://web.example.com
+app.allowed-origins=${ALLOWED_ORIGINS:}
+
+# Log level - can be overridden
+logging.level.chatapp.realtimeservice=${LOG_LEVEL:WARN}
+logging.level.org.springframework=${LOG_LEVEL_SPRING:WARN}
+
+# Additional production settings
+server.servlet.session.timeout=30m
+server.compression.enabled=true
+

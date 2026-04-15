@@ -1,0 +1,27 @@
+# This is an EXAMPLE file for development configuration
+# Copy this to application-dev.properties and customize for your local environment
+# DO NOT commit application-dev.properties to version control
+
+# Development-specific application settings
+app.internal-api-key=dev-local-key-change-me
+
+# Logging level for development (more verbose)
+logging.level.chatapp.realtimeservice=DEBUG
+logging.level.org.springframework.web=DEBUG
+
+# Local developer profile - use in-memory presence store for quick testing
+presence.store=memory
+
+# Optional local Redis settings if you want to test with Redis locally
+# spring.data.redis.host=localhost
+# spring.data.redis.port=6380
+
+# JWT secret for local testing (should match API Gateway for local integration testing)
+jwt.secret=dev-local-jwt-secret-do-not-use-in-production
+
+# CORS settings for local development
+app.allowed-origins=http://localhost:3000,http://localhost:4200
+
+# Log level overrides
+logging.level.org.springframework=DEBUG
+
