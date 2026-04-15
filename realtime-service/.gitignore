@@ -31,3 +31,17 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Application Profiles & Secrets ###
+# Environment-specific configuration files should NOT be committed
+src/main/resources/application-dev.properties
+src/main/resources/application-prod.properties
+src/main/resources/application-local.properties
+
+# Local override configurations
+src/main/resources/application-override.properties
+
+# Environment files
+.env
+.env.local
+.env.*.local
