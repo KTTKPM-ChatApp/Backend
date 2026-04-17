@@ -85,6 +85,24 @@ services:
     ports:
       - "3003:3003"
 
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: ktpm-api-gateway
+    restart: unless-stopped
+    depends_on:
+      - auth-service
+      - chat-service
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      JWT_SECRET: daihockythuatphanmem18ctt
+      AUTH_SERVICE_URL: http://auth-service:3001
+      CHAT_SERVICE_URL: http://chat-service:3003
+    ports:
+      - "3000:3000"
+
 volumes:
   mariadb_data:
   rabbitmq_data:
