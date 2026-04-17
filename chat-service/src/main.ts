@@ -1,30 +1,38 @@
-import { ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import 'reflect-metadata';
+import express from 'express';
+import cors from 'cors';
+import { AppDataSource, ensureDatabase } from './db';
+import { config } from './config';
+import { connectRabbitMQ, closeRabbitMQ } from './rabbitmq';
+import chatRouter from './chat/chat.router';
 
-async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+const app = express();
+app.use(cors(), express.json());
 
-  // Enable CORS for frontend
-  app.enableCors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
-  });
+app.use('/conversations', chatRouter);
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-
-  const port = Number(process.env.PORT ?? 3003);
-  await app.listen(port);
+async function bootstrap() {
+  try {
+    await ensureDatabase();
+    await AppDataSource.initialize();
+    console.log('Database connected');
+    
+    await connectRabbitMQ();
+    
+    app.listen(config.port, () => {
+      console.log(`chat-service running on port ${config.port}`);
+    });
+  } catch (error) {
+    console.error('Failed to start:', error);
+    process.exit(1);
+  }
 }
 
-void bootstrap();
+process.on('SIGTERM', async () => {
+  await closeRabbitMQ();
+  await AppDataSource.destroy();
+  process.exit(0);
+});
+
+bootstrap();
