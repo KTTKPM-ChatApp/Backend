@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { AppDataSource, Conversation, ConversationMember, Message } from '../db';
-import { publishNewMessage } from '../rabbitmq';
+import { notifyNewMessage } from '../notifier';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
@@ -163,18 +163,15 @@ export async function sendMessage(
   const members = await memberRepo().findBy({ conversationId });
   const participantIds = members.map(m => m.userId);
   
-  // Publish NEW_MESSAGE event
-  await publishNewMessage({
-    eventId: uuid(),
-    eventType: 'NEW_MESSAGE',
-    occurredAt: message.createdAt.toISOString(),
-    conversationId: conversation.id,
-    conversationType: conversation.type,
+  // Gửi notification real-time tới tất cả participants (trừ sender)
+  const receiverIds = participantIds.filter(id => id !== userId);
+  await notifyNewMessage({
     messageId: message.id,
-    senderId: message.senderId,
-    participantIds,
-    contentType: message.contentType,
+    senderId: userId,
+    receiverIds,
+    conversationId: conversation.id,
     content: message.content,
+    contentType: message.contentType,
     createdAt: message.createdAt.toISOString(),
   });
   

@@ -14,4 +14,10 @@ export const config = {
     exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
     routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
   },
+  realtimeService: {
+    // URL của realtime-service (Java/Spring Boot). Để trống nếu chưa deploy.
+    url: process.env.REALTIME_SERVICE_URL || '',
+    // Shared secret dùng cho inter-service communication
+    internalApiKey: process.env.INTERNAL_API_KEY || '',
+  },
 };

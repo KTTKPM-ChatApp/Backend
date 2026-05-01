@@ -20,11 +20,14 @@ class UserSessionServiceTest {
 
     private UserSessionService userSessionService;
     private PresenceRepository presenceRepository;
+    private MessageBroadcastService messageBroadcastService;
 
     @BeforeEach
     void setUp() {
         presenceRepository = new InMemoryPresenceRepository();
-        userSessionService = new UserSessionService(presenceRepository);
+        // Mock MessageBroadcastService — test không cần verify broadcast calls
+        messageBroadcastService = mock(MessageBroadcastService.class);
+        userSessionService = new UserSessionService(presenceRepository, messageBroadcastService);
     }
 
     @Test
