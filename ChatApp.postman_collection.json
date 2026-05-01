@@ -1,0 +1,503 @@
+{
+  "info": {
+    "name": "ChatApp Backend",
+    "_postman_id": "chatapp-backend-collection-2024",
+    "description": "Collection test đầy đủ cho ChatApp Backend: auth, user, chat, realtime.\n\n**Hướng dẫn:**\n1. Import collection này vào Postman\n2. Import environment `ChatApp.postman_environment.json`\n3. Chạy `Register Alice` → `Login Alice` (token tự lưu)\n4. Chạy các request theo thứ tự trong folder",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "gateway_url", "value": "http://localhost:3000" },
+    { "key": "realtime_url", "value": "http://localhost:8080" },
+    { "key": "token_alice", "value": "" },
+    { "key": "token_bob", "value": "" },
+    { "key": "user_id_alice", "value": "" },
+    { "key": "user_id_bob", "value": "" },
+    { "key": "conversation_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "🔍 Health Checks",
+      "item": [
+        {
+          "name": "Gateway Health",
+          "request": {
+            "method": "GET",
+            "url": "{{gateway_url}}/health",
+            "description": "Kiểm tra API Gateway đang chạy"
+          }
+        },
+        {
+          "name": "Auth Service Health",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:3001/health",
+            "description": "Kiểm tra Auth Service trực tiếp"
+          }
+        },
+        {
+          "name": "Chat Service Health",
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:3003/health",
+            "description": "Kiểm tra Chat Service trực tiếp"
+          }
+        },
+        {
+          "name": "Realtime Service Health",
+          "request": {
+            "method": "GET",
+            "url": "{{realtime_url}}/api/v1/health",
+            "description": "Kiểm tra Realtime Service (Spring Boot)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔐 Auth - Alice",
+      "item": [
+        {
+          "name": "Register Alice",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@test.com\",\n  \"password\": \"123456\",\n  \"displayName\": \"Alice Nguyen\"\n}"
+            },
+            "description": "Đăng ký tài khoản Alice. Chạy 1 lần."
+          }
+        },
+        {
+          "name": "Login Alice ✅ (auto-save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('token_alice', body.accessToken);",
+                  "    pm.collectionVariables.set('user_id_alice', body.user.id);",
+                  "    pm.collectionVariables.set('refresh_token_alice', body.refreshToken);",
+                  "    console.log('✅ Alice token saved. User ID:', body.user.id);",
+                  "    pm.test('Login thành công', () => pm.response.to.have.status(200));",
+                  "    pm.test('Có accessToken', () => pm.expect(body.accessToken).to.be.a('string'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@test.com\",\n  \"password\": \"123456\"\n}"
+            },
+            "description": "Login Alice. Token sẽ tự động lưu vào biến {{token_alice}} và {{user_id_alice}}."
+          }
+        },
+        {
+          "name": "Refresh Token Alice",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/refresh",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token_alice}}\"\n}"
+            },
+            "description": "Làm mới access token khi hết hạn"
+          }
+        },
+        {
+          "name": "Logout Alice",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/logout",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token_alice}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔐 Auth - Bob",
+      "item": [
+        {
+          "name": "Register Bob",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"bob\",\n  \"email\": \"bob@test.com\",\n  \"password\": \"123456\",\n  \"displayName\": \"Bob Tran\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login Bob ✅ (auto-save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('token_bob', body.accessToken);",
+                  "    pm.collectionVariables.set('user_id_bob', body.user.id);",
+                  "    pm.collectionVariables.set('refresh_token_bob', body.refreshToken);",
+                  "    console.log('✅ Bob token saved. User ID:', body.user.id);",
+                  "    pm.test('Login thành công', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@test.com\",\n  \"password\": \"123456\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "👤 Users",
+      "item": [
+        {
+          "name": "Get My Profile (Alice)",
+          "request": {
+            "method": "GET",
+            "url": "{{gateway_url}}/users/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_alice}}" }],
+            "description": "Lấy thông tin profile của Alice"
+          }
+        },
+        {
+          "name": "Search Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{gateway_url}}/users/search?q=bob",
+              "query": [{ "key": "q", "value": "bob", "description": "Tìm theo username hoặc displayName" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_alice}}" }],
+            "description": "Tìm user để bắt đầu chat"
+          }
+        },
+        {
+          "name": "Get User By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{gateway_url}}/users/{{user_id_bob}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_alice}}" }],
+            "description": "Lấy thông tin Bob theo ID. Cần chạy Login Bob trước để có {{user_id_bob}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "💬 Chat - Conversations",
+      "item": [
+        {
+          "name": "Create Direct Conversation (Alice → Bob) ✅",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('conversation_id', body.id);",
+                  "    console.log('✅ Conversation created:', body.id);",
+                  "    pm.test('Conversation created', () => pm.response.to.have.status(201));",
+                  "    pm.test('Có conversation ID', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('Type là DIRECT', () => pm.expect(body.type).to.equal('DIRECT'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"DIRECT\",\n  \"participantIds\": [\"{{user_id_bob}}\"]\n}"
+            },
+            "description": "Tạo cuộc hội thoại 1-1 giữa Alice và Bob.\n⚠️ Cần chạy Login Alice và Login Bob trước!"
+          }
+        },
+        {
+          "name": "Create Group Conversation",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"GROUP\",\n  \"title\": \"Nhóm Chat KTPM\",\n  \"participantIds\": [\"{{user_id_bob}}\", \"THEM_USER_ID_KHAC_O_DAY\"]\n}"
+            },
+            "description": "Tạo group chat (cần ít nhất 2 participants ngoài người tạo)"
+          }
+        },
+        {
+          "name": "List My Conversations (Alice)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{gateway_url}}/conversations?limit=20&offset=0",
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "offset", "value": "0" }
+              ]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_alice}}" }],
+            "description": "Lấy danh sách conversations của Alice, sắp xếp theo tin nhắn mới nhất"
+          }
+        },
+        {
+          "name": "List My Conversations (Bob)",
+          "request": {
+            "method": "GET",
+            "url": "{{gateway_url}}/conversations",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_bob}}" }],
+            "description": "Bob xem danh sách conversation của mình"
+          }
+        }
+      ]
+    },
+    {
+      "name": "✉️ Chat - Messages",
+      "item": [
+        {
+          "name": "Send Message (Alice → Bob) ✅",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Message sent (201)', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Có message ID', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('Content đúng', () => pm.expect(body.content).to.be.a('string'));",
+                  "    console.log('✅ Message sent:', body.id, '| Content:', body.content);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations/{{conversation_id}}/messages",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Xin chào Bob! 👋 Đây là tin nhắn test.\",\n  \"contentType\": \"TEXT\"\n}"
+            },
+            "description": "Alice gửi tin nhắn cho Bob.\n\n🔥 **Test realtime:** Trước khi gửi, hãy connect WebSocket bằng Postman WebSocket Request hoặc browser console với token của Bob → Bob sẽ nhận tin ngay lập tức!"
+          }
+        },
+        {
+          "name": "Send Second Message",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations/{{conversation_id}}/messages",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Bạn có online không? 🤔\",\n  \"contentType\": \"TEXT\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reply from Bob",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations/{{conversation_id}}/messages",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_bob}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Có, mình đang online! 😊\",\n  \"contentType\": \"TEXT\"\n}"
+            },
+            "description": "Bob reply lại Alice"
+          }
+        },
+        {
+          "name": "Get Messages in Conversation",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{gateway_url}}/conversations/{{conversation_id}}/messages?limit=50",
+              "query": [
+                { "key": "limit", "value": "50", "description": "Số lượng tin nhắn (max 100)" },
+                { "key": "before", "value": "", "description": "Cursor phân trang: ISO date của tin nhắn cũ nhất đang hiển thị", "disabled": true }
+              ]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token_alice}}" }],
+            "description": "Lấy lịch sử tin nhắn, sắp xếp theo thời gian tăng dần"
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚡ Realtime - Internal API",
+      "item": [
+        {
+          "name": "Check User Online Status",
+          "request": {
+            "method": "GET",
+            "url": "{{realtime_url}}/api/v1/internal/users/online",
+            "header": [
+              { "key": "x-internal-api-key", "value": "ktpm-internal-secret-key-2024" },
+              { "key": "user-id", "value": "{{user_id_bob}}" }
+            ],
+            "description": "Kiểm tra Bob có đang online (connected WebSocket) không.\nx-internal-api-key phải khớp với INTERNAL_API_KEY trong docker-compose"
+          }
+        },
+        {
+          "name": "Get Online User Count",
+          "request": {
+            "method": "GET",
+            "url": "{{realtime_url}}/api/v1/internal/stats/online-users",
+            "header": [
+              { "key": "x-internal-api-key", "value": "ktpm-internal-secret-key-2024" }
+            ],
+            "description": "Lấy tổng số user đang online (connected WebSocket)"
+          }
+        },
+        {
+          "name": "Manual Notify Message (test broadcast)",
+          "request": {
+            "method": "POST",
+            "url": "{{realtime_url}}/api/v1/internal/messages/notify",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-internal-api-key", "value": "ktpm-internal-secret-key-2024" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": \"test-msg-001\",\n  \"sender_id\": \"{{user_id_alice}}\",\n  \"receiver_id\": \"{{user_id_bob}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"content\": \"Test broadcast trực tiếp từ Postman!\",\n  \"content_type\": \"TEXT\",\n  \"created_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Test trực tiếp endpoint broadcast của realtime-service.\nNếu Bob đang connected WebSocket, Bob sẽ nhận ngay tin này!"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🌐 WebSocket (hướng dẫn)",
+      "item": [
+        {
+          "name": "ℹ️ Cách connect WebSocket trong Postman",
+          "request": {
+            "method": "GET",
+            "url": "{{realtime_url}}/api/v1/health",
+            "description": "# Test WebSocket STOMP trong Postman\n\n## Cách 1: Postman WebSocket Request\n1. Nhấn **New** → chọn **WebSocket**\n2. URL: `ws://localhost:8080/ws/websocket`\n   (dùng `/websocket` suffix để bypass SockJS và dùng WebSocket thuần)\n3. Nhấn **Connect**\n4. Sau khi connected, gửi frame STOMP CONNECT:\n```\nCONNECT\nAuthorization:Bearer YOUR_BOB_TOKEN\naccept-version:1.2\nheart-beat:10000,10000\n\n\\u0000\n```\n5. Subscribe để nhận messages:\n```\nSUBSCRIBE\nid:sub-0\ndestination:/user/queue/messages\n\n\\u0000\n```\n\n## Cách 2: Browser Console (đơn giản hơn)\nXem hướng dẫn trong run_and_test_guide.md"
+          }
+        }
+      ]
+    },
+    {
+      "name": "❌ Error Cases (test validation)",
+      "item": [
+        {
+          "name": "Register - Email đã tồn tại",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"alice_duplicate\",\n  \"email\": \"alice@test.com\",\n  \"password\": \"123456\",\n  \"displayName\": \"Alice Duplicate\"\n}"
+            },
+            "description": "Expect 409 Conflict"
+          }
+        },
+        {
+          "name": "Login - Sai password",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@test.com\",\n  \"password\": \"wrong_password\"\n}"
+            },
+            "description": "Expect 401 Unauthorized"
+          }
+        },
+        {
+          "name": "Send Message - Không có token",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations/some-id/messages",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Test không có token\"\n}"
+            },
+            "description": "Expect 401 Unauthorized từ Gateway"
+          }
+        },
+        {
+          "name": "Send Message - Không phải thành viên",
+          "request": {
+            "method": "POST",
+            "url": "{{gateway_url}}/conversations/invalid-conversation-id/messages",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token_alice}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Tin nhắn vào conversation không tồn tại\"\n}"
+            },
+            "description": "Expect 400 hoặc 404"
+          }
+        },
+        {
+          "name": "Internal API - Sai API Key",
+          "request": {
+            "method": "GET",
+            "url": "{{realtime_url}}/api/v1/internal/stats/online-users",
+            "header": [
+              { "key": "x-internal-api-key", "value": "wrong-key" }
+            ],
+            "description": "Expect 401 Unauthorized từ realtime-service"
+          }
+        }
+      ]
+    }
+  ]
+}

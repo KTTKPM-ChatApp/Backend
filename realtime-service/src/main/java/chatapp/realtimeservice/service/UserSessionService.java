@@ -17,9 +17,12 @@ public class UserSessionService {
     private static final Logger logger = LoggerFactory.getLogger(UserSessionService.class);
 
     private final PresenceRepository presenceRepository;
+    private final MessageBroadcastService messageBroadcastService;
 
-    public UserSessionService(PresenceRepository presenceRepository) {
+    public UserSessionService(PresenceRepository presenceRepository,
+                              MessageBroadcastService messageBroadcastService) {
         this.presenceRepository = presenceRepository;
+        this.messageBroadcastService = messageBroadcastService;
     }
 
     @EventListener
@@ -37,6 +40,7 @@ public class UserSessionService {
         boolean becameOnline = presenceRepository.addSession(userId, sessionId);
         if (becameOnline) {
             logger.info("User online: {}", userId);
+            messageBroadcastService.notifyPresenceChange(userId, true);
         }
     }
 
@@ -51,7 +55,10 @@ public class UserSessionService {
 
         Optional<PresenceRepository.SessionRemoval> removal = presenceRepository.removeSession(sessionId);
         removal.filter(PresenceRepository.SessionRemoval::becameOffline)
-                .ifPresent(sessionRemoval -> logger.info("User offline: {}", sessionRemoval.userId()));
+                .ifPresent(sessionRemoval -> {
+                    logger.info("User offline: {}", sessionRemoval.userId());
+                    messageBroadcastService.notifyPresenceChange(sessionRemoval.userId(), false);
+                });
     }
 
     public boolean isUserOnline(String userId) {

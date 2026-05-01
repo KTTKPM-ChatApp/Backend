@@ -12,9 +12,12 @@ public class MessageBroadcastService {
     private static final Logger logger = LoggerFactory.getLogger(MessageBroadcastService.class);
 
     private final SimpMessagingTemplate simpMessagingTemplate;
+    private final PresenceRepository presenceRepository;
 
-    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate) {
+    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate,
+                                   PresenceRepository presenceRepository) {
         this.simpMessagingTemplate = simpMessagingTemplate;
+        this.presenceRepository = presenceRepository;
     }
 
     public ApiResponse<Void> notifyMessageReceived(MessageNotificationRequest notification) {
@@ -52,7 +55,7 @@ public class MessageBroadcastService {
     }
 
     private boolean isUserOnline(String userId) {
-        return true;
+        return presenceRepository.isUserOnline(userId);
     }
 
     public record PresenceUpdate(String userId, String event) {
