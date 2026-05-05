@@ -18,3 +18,8 @@ export async function search(q: string, limit = 20, offset = 0) {
     .getMany();
   return users.map(strip);
 }
+
+export async function updateById(id: string, updates: Partial<User>) {
+  await repo().update(id, updates);
+  return await getById(id);
+}

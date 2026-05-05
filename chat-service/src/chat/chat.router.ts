@@ -2,6 +2,15 @@ import { Router, Response } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, validate, AuthReq } from '../middleware';
 import * as chatService from './chat.service';
+import multer from 'multer';
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
 
 const router = Router();
 
@@ -54,7 +63,19 @@ router.get('/',
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
     const conversations = await chatService.listConversations(req.userId!, limit, offset);
-    res.json({ conversations });
+    res.json({
+      success: true,
+      data: conversations,
+      meta: {
+        total: conversations.length,
+        page: Math.floor(offset / limit) + 1,
+        limit: limit,
+        totalPages: Math.ceil(conversations.length / limit),
+        hasNext: conversations.length >= limit,
+        hasPrev: offset > 0
+      },
+      timestamp: new Date().toISOString()
+    });
   }
 );
 
@@ -82,7 +103,19 @@ router.get('/:conversationId/messages',
         limit,
         before
       );
-      res.json({ messages });
+      res.json({
+        success: true,
+        data: messages,
+        meta: {
+          total: messages.length,
+          page: 1,
+          limit: limit,
+          totalPages: Math.ceil(messages.length / limit),
+          hasNext: messages.length >= limit,
+          hasPrev: false
+        },
+        timestamp: new Date().toISOString()
+      });
     } catch (e: any) {
       res.status(404).json({ message: e.message });
     }
@@ -115,6 +148,81 @@ router.post('/:conversationId/messages',
       res.status(201).json(message);
     } catch (e: any) {
       res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+/**
+ * POST /conversations/:conversationId/messages
+ * @header x-user-id string
+ * @param conversationId string
+ * @body content string
+ * @body contentType string (default TEXT)
+ * @body attachments array (optional)
+ */
+router.post('/:conversationId/messages',
+  authenticate,
+  [
+    body('content').isString().notEmpty(),
+    body('contentType').optional().isString(),
+    body('attachments').optional().isArray(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { content, contentType, attachments } = req.body;
+      const message = await chatService.sendMessage(
+        req.userId!,
+        req.params.conversationId,
+        content,
+        contentType,
+        attachments || []
+      );
+      res.status(201).json(message);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+/**
+ * POST /media/upload
+ * @header x-user-id string
+ * @body file (multipart/form-data)
+ */
+router.post('/media/upload',
+  authenticate,
+  upload.single('file'),
+  (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No file uploaded'
+        });
+      }
+
+      // For now, return mock response with actual file info
+      const uploadResult = {
+        key: `upload-${Date.now()}-${req.file.originalname}`,
+        url: `http://localhost:3003/uploads/upload-${Date.now()}-${req.file.originalname}`,
+        visibility: "public",
+        thumbnailKey: null,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      };
+      
+      res.status(200).json({
+        success: true,
+        data: uploadResult,
+        message: 'File uploaded successfully'
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || 'Upload failed' 
+      });
     }
   }
 );

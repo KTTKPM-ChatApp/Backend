@@ -94,10 +94,36 @@ export async function listConversations(userId: string, limit = 20, offset = 0) 
     memberMap.get(m.conversationId)!.push(m.userId);
   });
   
-  return conversations.map(c => ({
-    ...c,
-    memberIds: memberMap.get(c.id) || [],
-  }));
+  // Fetch last messages for conversations that have them
+  const lastMessageIds = conversations.map(c => c.lastMessageId).filter(Boolean) as string[];
+  const lastMessagesMap = new Map<string, any>();
+  
+  if (lastMessageIds.length > 0) {
+    const lastMessages = await messageRepo()
+      .createQueryBuilder('msg')
+      .where('msg.id IN (:...ids)', { ids: lastMessageIds })
+      .getMany();
+    
+    lastMessages.forEach(msg => {
+      lastMessagesMap.set(msg.id, msg);
+    });
+  }
+  
+  return conversations.map(c => {
+    const lastMessage = c.lastMessageId ? lastMessagesMap.get(c.lastMessageId) : null;
+    return {
+      ...c,
+      memberIds: memberMap.get(c.id) || [],
+      lastMessage: lastMessage ? {
+        id: lastMessage.id,
+        content: lastMessage.content,
+        contentType: lastMessage.contentType,
+        createdAt: lastMessage.createdAt.getTime(),
+        senderId: lastMessage.senderId,
+        senderName: null, // Will be populated by frontend or join with users table
+      } : null,
+    };
+  });
 }
 
 export async function getConversationMessages(
@@ -131,7 +157,8 @@ export async function sendMessage(
   userId: string,
   conversationId: string,
   content: string,
-  contentType = 'TEXT'
+  contentType = 'TEXT',
+  attachments: any[] = []
 ) {
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (!conversation) throw new Error('Conversation not found');
@@ -150,6 +177,12 @@ export async function sendMessage(
     content: trimmedContent,
   });
   await messageRepo().save(message);
+  
+  // Handle attachments if provided
+  if (attachments && attachments.length > 0) {
+    // TODO: Implement attachment storage
+    // For now, just log attachments - you'll need to implement file storage
+  }
   
   // Update last message
   await conversationRepo().update(conversationId, {
@@ -176,4 +209,34 @@ export async function sendMessage(
   });
   
   return message;
+}
+
+// Media Upload Service
+export async function uploadMedia(userId: string, file: any) {
+  try {
+    // TODO: Implement file storage (S3, local, etc.)
+    const key = `media/${uuid()}-${file.originalname}`;
+    const url = `http://localhost:3003/uploads/${key}`; // Temporary URL
+    
+    // Save file info to database (optional)
+    // await mediaRepo().save({
+    //   id: uuid(),
+    //   userId,
+    //   key,
+    //   originalName: file.originalname,
+    //   mimeType: file.mimetype,
+    //   size: file.size,
+    //   url,
+    // });
+    
+    return {
+      key,
+      url,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+    };
+  } catch (error: any) {
+    throw new Error(`Upload failed: ${error.message}`);
+  }
 }

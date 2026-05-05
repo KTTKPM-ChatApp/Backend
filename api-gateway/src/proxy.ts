@@ -4,7 +4,8 @@ import { AuthReq } from './middleware';
 
 export async function proxy(req: Request | AuthReq, res: Response, url: string, addUserId = false) {
   try {
-    const headers: any = { 'Content-Type': 'application/json' };
+    const headers: any = {};
+    if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'];
     if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
     if (addUserId && (req as AuthReq).userId) headers['x-user-id'] = (req as AuthReq).userId;
 
@@ -19,10 +20,12 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
 
     res.status(response.status).json(response.data);
   } catch (error: any) {
+    console.error('[API Gateway] Proxy error:', error);
+    console.error('[API Gateway] Error details:', error?.response?.data || error?.message);
     if (error.code === 'ECONNREFUSED') {
       res.status(503).json({ message: 'Service unavailable' });
     } else {
-      res.status(500).json({ message: 'Gateway error' });
+      res.status(500).json({ message: 'Gateway error', details: error?.message });
     }
   }
 }
