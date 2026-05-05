@@ -141,7 +141,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       CHAT_SERVICE_URL: http://chat-service:3003
     ports:
-      - "3000:3000"
+      - "4321:3000"
 
 volumes:
   mariadb_data:

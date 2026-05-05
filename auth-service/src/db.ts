@@ -10,6 +10,10 @@ export class User {
   @Column({ name: 'password_hash' }) passwordHash!: string;
   @Column({ name: 'display_name' }) displayName!: string;
   @Column({ name: 'avatar_url', nullable: true }) avatarUrl?: string;
+  @Column({ nullable: true }) bio?: string;
+  @Column({ nullable: true }) gender?: string;
+  @Column({ type: 'date', nullable: true }) dateOfBirth?: Date;
+  @Column({ nullable: true }) phone?: string;
   @Column({ name: 'is_active', default: true }) isActive!: boolean;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;

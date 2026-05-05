@@ -45,4 +45,22 @@ router.get('/:id', authenticate, async (req: AuthReq, res: Response) => {
   catch (e: any) { res.status(404).json({ message: e.message }); }
 });
 
+/**
+ * PUT /users/me
+ * @header Authorization Bearer <accessToken>
+ * @body displayName?, bio?, avatarUrl?, dateOfBirth?, gender?, email?
+ */
+router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
+  try {
+    console.log('PUT /users/me - Request body:', req.body);
+    console.log('PUT /users/me - Request userId:', req.userId);
+    const updatedUser = await userService.updateById(req.userId!, req.body);
+    console.log('PUT /users/me - Updated user:', updatedUser);
+    res.json(updatedUser);
+  } catch (e: any) { 
+    console.log('PUT /users/me - Error:', e.message);
+    res.status(400).json({ message: e.message }); 
+  }
+});
+
 export default router;
