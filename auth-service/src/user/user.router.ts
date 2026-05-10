@@ -26,12 +26,48 @@ router.get('/search',
   [query('q').trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 100 }), query('offset').optional().isInt({ min: 0 })],
   validate,
   async (req: AuthReq, res: Response) => {
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    
+    console.log('SEARCH REQUEST - Query:', req.query.q);
+    console.log('SEARCH REQUEST - Limit:', limit);
+    console.log('SEARCH REQUEST - Offset:', offset);
+    console.log('SEARCH REQUEST - User ID:', req.userId);
+    
     const users = await userService.search(
       req.query.q as string,
-      req.query.limit ? Number(req.query.limit) : 20,
-      req.query.offset ? Number(req.query.offset) : 0,
+      limit,
+      offset,
     );
-    res.json({ users });
+    
+    console.log('SEARCH RESULT - Found users:', users.length);
+    console.log('SEARCH RESULT - Users:', users.map(u => ({ id: u.id, username: u.username, displayName: u.displayName })));
+    
+    console.log('SEARCH RESPONSE - Sending to Frontend:', {
+      success: true,
+      data: users,
+      meta: {
+        total: users.length,
+        page: Math.floor(offset / limit) + 1,
+        limit: limit,
+        totalPages: Math.ceil(users.length / limit)
+      },
+      message: 'Search completed successfully',
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      success: true,
+      data: users,
+      meta: {
+        total: users.length,
+        page: Math.floor(offset / limit) + 1,
+        limit: limit,
+        totalPages: Math.ceil(users.length / limit)
+      },
+      message: 'Search completed successfully',
+      timestamp: new Date().toISOString()
+    });
   }
 );
 
@@ -56,10 +92,19 @@ router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
     console.log('PUT /users/me - Request userId:', req.userId);
     const updatedUser = await userService.updateById(req.userId!, req.body);
     console.log('PUT /users/me - Updated user:', updatedUser);
-    res.json(updatedUser);
+    res.json({
+      success: true,
+      data: updatedUser,
+      message: 'Profile updated successfully',
+      timestamp: new Date().toISOString()
+    });
   } catch (e: any) { 
     console.log('PUT /users/me - Error:', e.message);
-    res.status(400).json({ message: e.message }); 
+    res.status(400).json({ 
+      success: false,
+      message: e.message,
+      timestamp: new Date().toISOString()
+    }); 
   }
 });
 

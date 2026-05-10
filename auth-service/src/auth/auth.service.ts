@@ -13,12 +13,18 @@ const MAX_REFRESH_TOKENS = 5;
 const userRepo = () => AppDataSource.getRepository(User);
 const tokenRepo = () => AppDataSource.getRepository(RefreshToken);
 
-export async function register(username: string, email: string, password: string, displayName: string) {
+export async function register(username: string, email: string, password: string, displayName: string, dateOfBirth?: Date, gender?: string, bio?: string, phone?: string) {
   if (await userRepo().findOneBy({ email })) throw new Error('Email already in use');
   if (await userRepo().findOneBy({ username })) throw new Error('Username already taken');
 
   const user = userRepo().create({
-    username, email, displayName,
+    username, 
+    email, 
+    displayName,
+    dateOfBirth,
+    gender,
+    bio,
+    phone,
     passwordHash: await bcrypt.hash(password, 10),
   });
   const saved = await userRepo().save(user);

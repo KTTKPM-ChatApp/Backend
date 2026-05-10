@@ -11,14 +11,18 @@ const router = Router();
  * @body email    string
  * @body password string (min 6)
  * @body displayName string
+ * @body dateOfBirth string (optional)
+ * @body gender string (optional)
+ * @body bio string (optional)
+ * @body phone string (optional)
  */
 router.post('/register',
-  [body('username').trim().isLength({ min: 3 }), body('email').isEmail(), body('password').isLength({ min: 6 }), body('displayName').trim().notEmpty()],
+  [body('username').trim().isLength({ min: 3 }), body('email').isEmail(), body('password').isLength({ min: 6 }), body('displayName').trim().notEmpty(), body('dateOfBirth').optional(), body('gender').optional(), body('bio').optional(), body('phone').optional()],
   validate,
   async (req: Request, res: Response) => {
     try {
-      const { username, email, password, displayName } = req.body;
-      const user = await authService.register(username, email, password, displayName);
+      const { username, email, password, displayName, dateOfBirth, gender, bio, phone } = req.body;
+      const user = await authService.register(username, email, password, displayName, dateOfBirth, gender, bio, phone);
       res.status(201).json({ user });
     } catch (e: any) { res.status(409).json({ message: e.message }); }
   }
