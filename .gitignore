@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Build output
 dist/
@@ -35,3 +34,4 @@ coverage/
 *.pid
 *.seed
 *.pid.lock
+repomix-output.xml
