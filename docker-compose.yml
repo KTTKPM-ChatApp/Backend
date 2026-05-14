@@ -91,6 +91,8 @@ services:
       DB_USER: root
       DB_PASS: sapassword
       DB_NAME: chat_service
+      DB_CONNECT_RETRY_ATTEMPTS: 25
+      DB_CONNECT_RETRY_DELAY_MS: 3000
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
       RABBITMQ_EXCHANGE: chat.events
       RABBITMQ_ROUTING_KEY_NEW_MESSAGE: chat.new_message

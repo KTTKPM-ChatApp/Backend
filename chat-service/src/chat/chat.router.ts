@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { body, query } from 'express-validator';
 import { authenticate, validate, AuthReq } from '../middleware';
 import * as chatService from './chat.service';
+import conversationRouter from '../conversations/conversation.router';
 import multer from 'multer';
 
 // Configure multer for file uploads
@@ -13,6 +14,8 @@ const upload = multer({
 });
 
 const router = Router();
+// Mount full conversation feature routes so api-gateway endpoints are served from this router too.
+router.use('/', conversationRouter);
 
 /**
  * POST /conversations
@@ -128,37 +131,6 @@ router.get('/:conversationId/messages',
  * @param conversationId string
  * @body content string
  * @body contentType string (default TEXT)
- */
-router.post('/:conversationId/messages',
-  authenticate,
-  [
-    body('content').isString().notEmpty(),
-    body('contentType').optional().isString(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { content, contentType } = req.body;
-      const message = await chatService.sendMessage(
-        req.userId!,
-        req.params.conversationId,
-        content,
-        contentType
-      );
-      res.status(201).json(message);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-/**
- * POST /conversations/:conversationId/messages
- * @header x-user-id string
- * @param conversationId string
- * @body content string
- * @body contentType string (default TEXT)
- * @body attachments array (optional)
  */
 router.post('/:conversationId/messages',
   authenticate,

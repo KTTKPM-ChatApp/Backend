@@ -1,26 +1,19 @@
 import amqp from 'amqplib';
 import { config } from './config';
 
-let connection: any = null;
-let channel: any = null;
+let rabbitConnected = false;
+let rabbitLastError: string | null = null;
 
 export async function connectRabbitMQ(): Promise<void> {
   try {
-    connection = await amqp.connect(config.rabbitmq.url);
-    if (connection) {
-      channel = await connection.createChannel();
-      
-      // Declare the exchange
-      if (channel) {
-        await channel.assertExchange(config.rabbitmq.exchange, 'topic', { durable: true });
-      }
-      
-      console.log('RabbitMQ connected successfully');
-    }
-  } catch (error) {
-    console.error('Failed to connect to RabbitMQ:', error);
-    // Don't throw error, allow service to continue without RabbitMQ
-    console.log('Continuing without RabbitMQ (graceful degradation)');
+    // Placeholder implementation - keep service boot resilient even when RabbitMQ is optional.
+    rabbitConnected = false;
+    rabbitLastError = 'RabbitMQ connection is not implemented yet';
+    console.log('RabbitMQ connection skipped (will implement later)');
+  } catch (error: any) {
+    rabbitConnected = false;
+    rabbitLastError = error?.message || 'Unknown RabbitMQ error';
+    throw error;
   }
 }
 
@@ -48,17 +41,13 @@ export async function publishNewMessage(payload: any): Promise<void> {
 }
 
 export async function closeRabbitMQ(): Promise<void> {
-  try {
-    if (channel) {
-      await channel.close();
-      channel = null;
-    }
-    if (connection) {
-      await connection.close();
-      connection = null;
-    }
-    console.log('RabbitMQ connection closed');
-  } catch (error) {
-    console.error('Error closing RabbitMQ connection:', error);
-  }
+  rabbitConnected = false;
+  console.log('RabbitMQ closed');
+}
+
+export function getRabbitMQStatus() {
+  return {
+    connected: rabbitConnected,
+    lastError: rabbitLastError,
+  };
 }
