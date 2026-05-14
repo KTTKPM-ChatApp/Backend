@@ -1,3 +1,4 @@
+import amqp from 'amqplib';
 import { config } from './config';
 
 let rabbitConnected = false;
@@ -17,7 +18,26 @@ export async function connectRabbitMQ(): Promise<void> {
 }
 
 export async function publishNewMessage(payload: any): Promise<void> {
-  console.log('NEW_MESSAGE event:', JSON.stringify(payload, null, 2));
+  if (!channel) {
+    console.log('RabbitMQ channel not available, skipping message publishing');
+    return;
+  }
+
+  try {
+    const message = Buffer.from(JSON.stringify(payload));
+    const routingKey = config.rabbitmq.routingKeyNewMessage;
+    
+    await channel.publish(config.rabbitmq.exchange, routingKey, message, {
+      persistent: true,
+      messageId: payload.messageId,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`Published message ${payload.messageId} to RabbitMQ`);
+  } catch (error) {
+    console.error('Failed to publish message to RabbitMQ:', error);
+    // Don't throw error, don't fail the main request
+  }
 }
 
 export async function closeRabbitMQ(): Promise<void> {
