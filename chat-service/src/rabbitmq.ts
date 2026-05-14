@@ -3,6 +3,7 @@ import { config } from './config';
 
 let rabbitConnected = false;
 let rabbitLastError: string | null = null;
+let channel: amqp.Channel | null = null;
 
 export async function connectRabbitMQ(): Promise<void> {
   try {
@@ -41,6 +42,7 @@ export async function publishNewMessage(payload: any): Promise<void> {
 }
 
 export async function closeRabbitMQ(): Promise<void> {
+  channel = null;
   rabbitConnected = false;
   console.log('RabbitMQ closed');
 }
