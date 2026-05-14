@@ -19,8 +19,8 @@ export const config = {
   },
   realtimeService: {
     // URL của realtime-service (Java/Spring Boot). Để trống nếu chưa deploy.
-    url: process.env.REALTIME_SERVICE_URL || '',
+    url: process.env.REALTIME_SERVICE_URL || 'http://localhost:8080',
     // Shared secret dùng cho inter-service communication
-    internalApiKey: process.env.INTERNAL_API_KEY || '',
+    internalApiKey: process.env.INTERNAL_API_KEY || 'dev-internal-key-change-me',
   },
 };
