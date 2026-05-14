@@ -6,8 +6,11 @@ export const config = {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT) || 3306,
     username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASS || 'root',
+    password: process.env.DB_PASS || 'sapassword',
     database: process.env.DB_NAME || 'chat_service',
+    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
+    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    authSwitchHandler: () => {},
   },
   rabbitmq: {
     url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
