@@ -155,6 +155,7 @@ app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, 
 app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
 app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
 app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
 app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
 app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
 app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));

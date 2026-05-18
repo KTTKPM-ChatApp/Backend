@@ -88,7 +88,8 @@ router.post('/direct',
       );
       res.status(201).json(conversation);
     } catch (e: any) {
-      res.status(400).json({ message: e.message });
+      console.error('[createDirectConversation] Error:', e);
+      res.status(400).json({ message: e.message, stack: e.stack });
     }
   }
 );

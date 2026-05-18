@@ -248,7 +248,20 @@ export async function pinMessage(
     pinnedBy: member.userId,
   });
   await pinRepo().save(pin);
-  return pin;
+  
+  return {
+    id: pin.id,
+    messageId: pin.messageId,
+    conversationId: pin.conversationId,
+    pinnedBy: pin.pinnedBy,
+    pinnedAt: pin.pinnedAt,
+    message: {
+      id: message.id,
+      content: message.content,
+      senderId: message.senderId,
+      createdAt: toEpoch(message.createdAt),
+    }
+  };
 }
 
 export async function unpinMessage(
@@ -258,15 +271,10 @@ export async function unpinMessage(
   messageId: string
 ) {
   const member = await ensureMember(userId, conversationId);
-  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
-  if (!message) throw new Error('Message not found');
-  if (Math.abs(toEpoch(message.createdAt) - createdAt) > 60000) {
-    throw new Error('Message timestamp mismatch');
-  }
 
   const pin = await pinRepo().findOneBy({ messageId, conversationId });
   if (!pin) {
-    return { message: 'Message already unpinned' };
+    return { success: true, message: 'Message already unpinned' };
   }
 
   const isAdmin = member.role === 'OWNER' || member.role === 'ADMIN';
@@ -275,7 +283,7 @@ export async function unpinMessage(
   }
 
   await pinRepo().delete({ id: pin.id });
-  return { message: 'Unpinned' };
+  return { success: true, message: 'Unpinned' };
 }
 
 export async function listPinnedMessages(userId: string, conversationId: string, limit: number = 20) {
@@ -371,4 +379,33 @@ export async function lookupMessageById(messageId: string) {
     body: message.content,
     createdAt: toEpoch(message.createdAt),
   };
+}
+
+export async function deleteMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string
+) {
+  await ensureMember(userId, conversationId);
+
+  const message = await messageRepo().findOneBy({
+    id: messageId,
+    conversationId,
+    createdAt: new Date(createdAt),
+  });
+
+  if (!message) {
+    throw new Error('Message not found');
+  }
+
+  if (message.senderId !== userId) {
+    throw new Error('You can only delete your own messages');
+  }
+
+  await messageRepo().delete({ id: messageId });
+  
+  await pinRepo().delete({ messageId, conversationId });
+  
+  return { success: true, messageId };
 }

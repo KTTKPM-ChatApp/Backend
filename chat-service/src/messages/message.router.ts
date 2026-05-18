@@ -236,4 +236,28 @@ router.get(
   }
 );
 
+router.delete(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.deleteMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
 export default router;

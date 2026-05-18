@@ -28,6 +28,10 @@ export function authenticate(req: AuthReq, res: Response, next: NextFunction): v
 
 export function validate(req: Request, res: Response, next: NextFunction): void {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) { res.status(400).json({ errors: errors.array() }); return; }
+  if (!errors.isEmpty()) {
+    console.log('[Validator] Failed:', req.originalUrl, errors.array(), 'Body:', req.body);
+    res.status(400).json({ errors: errors.array() });
+    return;
+  }
   next();
 }

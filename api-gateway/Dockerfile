@@ -9,7 +9,7 @@ RUN npm run build
 # ─── Stage 2: Runtime ───────────────────────────────────────────────────────
 FROM node:20-alpine
 WORKDIR /app
-COPY package*.json ./
+COPY package*.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 EXPOSE 3000

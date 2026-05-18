@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { AppDataSource, Conversation, ConversationMember, Message, MessageAttachment, User } from '../db';
 import { notifyNewMessage } from '../notifier';
 import { fetchUserInfo } from '../auth-client';
+import { publishNewMessage } from '../rabbitmq';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
@@ -307,12 +308,9 @@ export async function sendMessage(
   await publishNewMessage({
     messageId: message.id,
     senderId: userId,
-    receiverIds,
     conversationId: conversation.id,
     content: message.content,
     contentType: message.contentType,
-    createdAt: message.createdAt.toISOString(),
-    attachments: (message as any).attachments || [],
   });
   
   return message;

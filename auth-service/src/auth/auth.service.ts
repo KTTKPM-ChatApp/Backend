@@ -17,11 +17,19 @@ export async function register(username: string, email: string, password: string
   if (await userRepo().findOneBy({ email })) throw new Error('Email already in use');
   if (await userRepo().findOneBy({ username })) throw new Error('Username already taken');
 
+  let parsedDateOfBirth: Date | undefined;
+  if (dateOfBirth) {
+    const d = new Date(dateOfBirth);
+    if (!isNaN(d.getTime())) {
+      parsedDateOfBirth = new Date(d.toISOString().split('T')[0]);
+    }
+  }
+
   const user = userRepo().create({
     username, 
     email, 
     displayName,
-    dateOfBirth,
+    dateOfBirth: parsedDateOfBirth,
     gender,
     bio,
     phone,
