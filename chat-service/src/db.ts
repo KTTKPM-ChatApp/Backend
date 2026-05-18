@@ -161,6 +161,17 @@ export class UserPinnedConversation {
   @CreateDateColumn({ name: 'pinned_at' }) pinnedAt!: Date;
 }
 
+@Entity('message_reads')
+@Index(['messageId'])
+@Index(['userId', 'conversationId'])
+export class MessageRead {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 36, name: 'message_id' }) messageId!: string;
+  @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
+  @Column('varchar', { length: 36, name: 'user_id' }) userId!: string;
+  @CreateDateColumn({ name: 'read_at' }) readAt!: Date;
+}
+
 // Type definitions
 export interface PollOption {
   id: string;
@@ -230,7 +241,7 @@ export const AppDataSource = new DataSource({
   ...config.db,
   synchronize: process.env.NODE_ENV !== 'production',
   logging: false,
-  entities: [
+entities: [
     Conversation, 
     ConversationMember, 
     Message,
@@ -242,7 +253,8 @@ export const AppDataSource = new DataSource({
     PollVote,
     ConversationCall,
     ConversationSettings,
-    UserPinnedConversation
+    UserPinnedConversation,
+    MessageRead
   ],
   connectorPackage: 'mysql2',
 });

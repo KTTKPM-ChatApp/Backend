@@ -333,6 +333,35 @@ export async function getMessageReactions(userId: string, messageId: string) {
   }));
 }
 
+export async function editMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string,
+  newContent: string
+) {
+  await ensureMember(userId, conversationId);
+  const msg = await messageRepo().findOneBy({ id: messageId, conversationId });
+  if (!msg) throw new Error('Message not found');
+  if (msg.senderId !== userId) throw new Error('You can only edit your own messages');
+
+  const trimmed = newContent.trim();
+  if (!trimmed) throw new Error('Content cannot be empty');
+
+  msg.content = trimmed;
+  msg.isEdited = true;
+  msg.editedAt = new Date();
+  await messageRepo().save(msg);
+
+  return {
+    ...msg,
+    messageId: msg.id,
+    body: msg.content,
+    createdAt: toEpoch(msg.createdAt),
+    editedAt: toEpoch(msg.editedAt),
+  };
+}
+
 export async function lookupMessageById(messageId: string) {
   const message = await messageRepo().findOneBy({ id: messageId });
   if (!message) return null;

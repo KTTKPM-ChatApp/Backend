@@ -16,6 +16,8 @@ import {
   ConversationPolicies,
   ConversationFeatures
 } from '../db';
+import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
+import { publishConversationCreated } from '../rabbitmq';
 
 // Repository getters
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
@@ -94,21 +96,26 @@ export async function listConversations(userId: string, page: number = 1, limit:
     .getMany();
   
   const memberMap = new Map<string, any[]>();
-  console.log('[DEBUG] Raw members from DB:', members.length, 'items');
-  console.log('[DEBUG] First member raw data:', JSON.stringify(members[0], null, 2));
   members.forEach(m => {
     if (!memberMap.has(m.conversationId)) memberMap.set(m.conversationId, []);
-    const displayName = m.nickname; // Use nickname from ConversationMember entity
     const memberData = {
       userId: m.userId,
-      displayName: displayName,
+      displayName: null as string | null,
       role: m.role
     };
-    console.log(`[DEBUG] Adding to memberMap for ${m.conversationId}:`, JSON.stringify(memberData, null, 2));
     memberMap.get(m.conversationId)!.push(memberData);
   });
-  console.log('[DEBUG] memberMap keys:', Array.from(memberMap.keys()));
-  console.log('[DEBUG] memberMap size for conv-5:', memberMap.get('conv-5')?.length);
+
+  const userIds = members.map(m => m.userId);
+  const userInfoMap = await fetchUsersInfo(userIds);
+  for (const [convId, convMembers] of memberMap) {
+    for (const m of convMembers) {
+      const info = userInfoMap.get(m.userId);
+      if (info) {
+        m.displayName = info.displayName;
+      }
+    }
+  }
   
   const pinned = await pinnedRepo()
     .createQueryBuilder('p')
@@ -118,11 +125,20 @@ export async function listConversations(userId: string, page: number = 1, limit:
   const pinnedSet = new Set(pinned.map(p => p.conversationId));
   
   return {
-    data: conversations.map(c => ({
-      ...c,
-      members: memberMap.get(c.id) || [],
-      isPinned: pinnedSet.has(c.id)
-    })),
+    data: conversations.map(c => {
+      const members = memberMap.get(c.id) || [];
+      const otherMember = members.find(m => m.userId !== userId);
+      let name = c.title || 'Cuộc trò chuyện';
+      if (otherMember?.displayName) {
+        name = otherMember.displayName;
+      }
+      return {
+        ...c,
+        name,
+        members,
+        isPinned: pinnedSet.has(c.id)
+      };
+    }),
     meta: {
       total: conversations.length,
       page,
@@ -143,10 +159,16 @@ export async function getConversationById(userId: string, conversationId: string
   }
   
   const members = await memberRepo().findBy({ conversationId });
+  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
+  const enrichedMembers = members.map(m => ({
+    userId: m.userId,
+    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+    role: m.role,
+  }));
   
   return {
     ...conversation,
-    members
+    members: enrichedMembers,
   };
 }
 
@@ -210,6 +232,15 @@ export async function createGroupConversation(
   }));
   
   const members = await memberRepo().findBy({ conversationId: conversation.id });
+
+  // Publish conversation.created event
+  await publishConversationCreated({
+    conversationId: conversation.id,
+    type: 'GROUP',
+    createdBy,
+    memberIds: allMemberIds,
+    title: name.trim(),
+  });
   
   return {
     ...conversation,
@@ -229,35 +260,84 @@ export async function createDirectConversation(
   const existing = await conversationRepo().findOneBy({ directKey });
   
   if (existing) {
-    const members = await memberRepo().findBy({ conversationId: existing.id });
-    return {
-      ...existing,
-      members
-    };
+    const existingMembers = await memberRepo().findBy({ conversationId: existing.id });
+    
+    if (existingMembers.length === 0) {
+      await conversationRepo().delete(existing.id);
+    } else {
+      const userInfoMap = await fetchUsersInfo(existingMembers.map(m => m.userId));
+      const enrichedMembers = existingMembers.map(m => ({
+        userId: m.userId,
+        displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+        role: m.role,
+      }));
+      // Tìm displayName của participant (người kia trong direct conversation)
+      const otherMemberId = existingMembers.find(m => m.userId !== createdBy)?.userId;
+      let name = existing.title || 'Cuộc trò chuyện';
+      if (otherMemberId) {
+        const otherUserInfo = userInfoMap.get(otherMemberId);
+        name = otherUserInfo?.displayName ?? otherUserInfo?.username ?? name;
+      }
+      return {
+        ...existing,
+        name,
+        members: enrichedMembers,
+      };
+    }
   }
   
+  const otherUserInfo = await fetchUserInfo(participantId);
+  const title = otherUserInfo?.displayName ?? participantId;
+
   const conversation = conversationRepo().create({
     id: uuid(),
     type: 'DIRECT',
     createdBy,
-    directKey
+    directKey,
+    title,
   });
   await conversationRepo().save(conversation);
   
   const memberIds = [createdBy, participantId];
-  await memberRepo().save(memberIds.map(userId => 
-    memberRepo().create({ 
+  
+  for (const userId of memberIds) {
+    const memberEntity = memberRepo().create({ 
       conversationId: conversation.id, 
       userId,
       joinedAt: new Date()
-    })
-  ));
+    });
+    try {
+      await memberRepo().save(memberEntity);
+    } catch (err) {
+      console.error('[createDirectConversation] Error saving member:', userId, err);
+      throw err;
+    }
+  }
   
-  const members = await memberRepo().findBy({ conversationId: conversation.id });
+  const members = await memberRepo()
+    .createQueryBuilder('m')
+    .where('m.conversation_id = :convId', { convId: conversation.id })
+    .getMany();
+  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
+  const enrichedMembers = members.map(m => ({
+    userId: m.userId,
+    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+    role: m.role,
+  }));
+
+  // Publish conversation.created event
+  await publishConversationCreated({
+    conversationId: conversation.id,
+    type: 'DIRECT',
+    createdBy,
+    memberIds,
+    title,
+  });
   
   return {
     ...conversation,
-    members
+    name: title,
+    members: enrichedMembers,
   };
 }
 

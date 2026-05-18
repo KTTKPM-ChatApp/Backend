@@ -5,12 +5,14 @@ import { AppDataSource, ensureDatabase, initializeDataSource } from './db';
 import { config } from './config';
 import authRouter from './auth/auth.router';
 import userRouter from './user/user.router';
+import friendRouter from './friend/friend.router';
 
 const app = express();
 app.use(cors(), express.json());
 
 app.use('/auth', authRouter);
 app.use('/users', userRouter);
+app.use('/friends', friendRouter);
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
 ensureDatabase()

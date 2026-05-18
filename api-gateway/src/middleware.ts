@@ -7,16 +7,25 @@ export interface AuthReq extends Request {
 }
 
 export function authenticate(req: AuthReq, res: Response, next: NextFunction): void {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    res.status(401).json({ message: 'Unauthorized' });
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader) {
+    res.status(401).json({ message: 'Unauthorized - No auth header' });
     return;
   }
+  
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    res.status(401).json({ message: 'Unauthorized - No token' });
+    return;
+  }
+  
   try {
     const payload = jwt.verify(token, config.jwtSecret) as { sub: string };
     req.userId = payload.sub;
     next();
-  } catch {
+  } catch (err) {
+    console.error('[Auth Middleware] JWT verify error:', err);
     res.status(401).json({ message: 'Invalid token' });
   }
 }

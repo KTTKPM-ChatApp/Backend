@@ -82,10 +82,9 @@ router.post('/direct',
   validate,
   async (req: AuthReq, res: Response) => {
     try {
-      const { participantId } = req.body;
       const conversation = await conversationService.createDirectConversation(
         req.userId!,
-        participantId
+        req.body.participantId
       );
       res.status(201).json(conversation);
     } catch (e: any) {

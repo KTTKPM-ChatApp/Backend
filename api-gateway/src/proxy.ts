@@ -7,7 +7,13 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
     const headers: any = {};
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'];
     if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
-    if (addUserId && (req as AuthReq).userId) headers['x-user-id'] = (req as AuthReq).userId;
+    
+    // Always add x-user-id for chat-service endpoints
+    const userId = (req as AuthReq).userId;
+    
+    if (addUserId && userId) {
+      headers['x-user-id'] = userId;
+    }
 
     const response = await axios({
       method: req.method,
