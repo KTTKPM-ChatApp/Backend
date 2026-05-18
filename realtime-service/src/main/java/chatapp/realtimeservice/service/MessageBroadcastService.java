@@ -31,9 +31,12 @@ public class MessageBroadcastService {
                     notification.receiverId(), notification.messageId());
         }
 
-        String destination = "/user/" + notification.receiverId() + "/queue/messages";
         try {
-            simpMessagingTemplate.convertAndSend(destination, notification);
+            simpMessagingTemplate.convertAndSendToUser(
+                    notification.receiverId(),
+                    "/queue/messages",
+                    notification
+            );
             logger.info("Message {} sent to user {} via WebSocket", notification.messageId(), notification.receiverId());
             return ApiResponse.ok(null, "Message notification sent successfully");
         } catch (Exception ex) {

@@ -4,7 +4,7 @@ services:
     container_name: ktpm-mariadb
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: sapassword
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: auth_service
     ports:
       - "3306:3306"
@@ -21,8 +21,8 @@ services:
     container_name: ktpm-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -63,11 +63,11 @@ services:
       DB_HOST: mariadb
       DB_PORT: 3306
       DB_USER: root
-      DB_PASS: sapassword
+      DB_PASS: ${DB_PASS}
       DB_NAME: auth_service
-      JWT_SECRET: daihockythuatphanmem18ctt
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
-      JWT_REFRESH_SECRET: daihockythuatphanmem
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_REFRESH_EXPIRES_IN: 30d
     ports:
       - "3001:3001"
@@ -89,11 +89,11 @@ services:
       DB_HOST: mariadb
       DB_PORT: 3306
       DB_USER: root
-      DB_PASS: sapassword
+      DB_PASS: ${DB_PASS}
       DB_NAME: chat_service
       DB_CONNECT_RETRY_ATTEMPTS: 25
       DB_CONNECT_RETRY_DELAY_MS: 3000
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672
       RABBITMQ_EXCHANGE: chat.events
       RABBITMQ_ROUTING_KEY_NEW_MESSAGE: chat.new_message
       AUTH_SERVICE_URL: http://auth-service:3001
@@ -119,9 +119,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       # Phải khớp với JWT_SECRET trong auth-service và api-gateway
-      JWT_SECRET: daihockythuatphanmem18ctt
+      JWT_SECRET: ${JWT_SECRET}
       # Shared secret cho inter-service communication (chat → realtime)
-      INTERNAL_API_KEY: ktpm-internal-secret-key-2024
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -144,7 +144,7 @@ services:
     environment:
       PORT: 3000
       NODE_ENV: production
-      JWT_SECRET: daihockythuatphanmem18ctt
+      JWT_SECRET: ${JWT_SECRET}
       AUTH_SERVICE_URL: http://auth-service:3001
       CHAT_SERVICE_URL: http://chat-service:3003
     ports:

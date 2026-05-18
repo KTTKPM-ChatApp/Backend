@@ -5,6 +5,7 @@ let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
 let rabbitConnected = false;
 let rabbitLastError: string | null = null;
+let channel: amqp.Channel | null = null;
 
 const EXCHANGE_NAME = config.rabbitmq.exchange;
 

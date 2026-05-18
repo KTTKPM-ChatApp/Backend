@@ -207,6 +207,35 @@ export interface ConversationFeatures {
   reactions: boolean;
 }
 
+@Entity('message_attachments')
+export class MessageAttachment {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 36, name: 'message_id' }) messageId!: string;
+  @Column('varchar', { length: 255 }) key!: string;
+  @Column('varchar', { length: 255 }) url!: string;
+  @Column('varchar', { length: 255, name: 'original_name' }) originalName!: string;
+  @Column('varchar', { length: 100, name: 'mime_type' }) mimeType!: string;
+  @Column('bigint') size!: number;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
+// User entity for joining - read-only view from auth_service database
+@Entity('users')
+export class User {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column({ length: 255 }) username!: string;
+  @Column({ length: 255 }) email!: string;
+  @Column({ length: 255, name: 'display_name' }) displayName!: string;
+  @Column({ length: 500, name: 'avatar_url', nullable: true }) avatarUrl?: string;
+  @Column({ length: 1000, nullable: true }) bio?: string;
+  @Column({ length: 50, nullable: true }) gender?: string;
+  @Column({ type: 'date', nullable: true }) dateOfBirth?: Date;
+  @Column({ length: 20, nullable: true }) phone?: string;
+  @Column({ name: 'is_active', default: true }) isActive!: boolean;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
 export const AppDataSource = new DataSource({
   type: 'mariadb',
   ...config.db,

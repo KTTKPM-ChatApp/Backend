@@ -1,11 +1,13 @@
 import { v4 as uuid } from 'uuid';
-import { AppDataSource, Conversation, ConversationMember, Message } from '../db';
+import { AppDataSource, Conversation, ConversationMember, Message, MessageAttachment, User } from '../db';
 import { notifyNewMessage } from '../notifier';
 import { fetchUserInfo } from '../auth-client';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
+const attachmentRepo = () => AppDataSource.getRepository(MessageAttachment);
+const userRepo = () => AppDataSource.getRepository(User);
 
 function buildDirectKey(userId1: string, userId2: string): string {
   return [userId1, userId2].sort().join(':');
@@ -110,8 +112,32 @@ export async function listConversations(userId: string, limit = 20, offset = 0) 
       .where('msg.id IN (:...ids)', { ids: lastMessageIds })
       .getMany();
     
+    // Get unique sender IDs from messages
+    const senderIds = [...new Set(lastMessages.map(msg => msg.senderId))];
+    const usersMap = new Map<string, any>();
+    
+    if (senderIds.length > 0) {
+      const users = await userRepo()
+        .createQueryBuilder('u')
+        .where('u.id IN (:...ids)', { ids: senderIds })
+        .getMany();
+      
+      users.forEach(user => {
+        usersMap.set(user.id, {
+          id: user.id,
+          displayName: user.displayName,
+          username: user.username,
+          avatarUrl: user.avatarUrl,
+        });
+      });
+    }
+    
     lastMessages.forEach(msg => {
-      lastMessagesMap.set(msg.id, msg);
+      const messageWithSender = {
+        ...msg,
+        sender: usersMap.get(msg.senderId) || null,
+      };
+      lastMessagesMap.set(msg.id, messageWithSender);
     });
   }
   
@@ -126,7 +152,12 @@ export async function listConversations(userId: string, limit = 20, offset = 0) 
         contentType: lastMessage.contentType,
         createdAt: lastMessage.createdAt.getTime(),
         senderId: lastMessage.senderId,
-        senderName: null, // Will be populated by frontend or join with users table
+        sender: lastMessage.sender ? {
+          id: lastMessage.sender.id,
+          displayName: lastMessage.sender.displayName,
+          username: lastMessage.sender.username,
+          avatarUrl: lastMessage.sender.avatarUrl,
+        } : null,
       } : null,
     };
   });
@@ -156,6 +187,48 @@ export async function getConversationMessages(
   }
   
   const messages = await qb.getMany();
+  
+  // Get unique sender IDs from messages
+  const senderIds = [...new Set(messages.map(msg => msg.senderId))];
+  const usersMap = new Map<string, any>();
+  
+  if (senderIds.length > 0) {
+    const users = await userRepo()
+      .createQueryBuilder('u')
+      .where('u.id IN (:...ids)', { ids: senderIds })
+      .getMany();
+    
+    users.forEach(user => {
+      usersMap.set(user.id, {
+        id: user.id,
+        displayName: user.displayName,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      });
+    });
+  }
+  
+  // Get attachments for all messages
+  const messageIds = messages.map(m => m.id);
+  if (messageIds.length > 0) {
+    const attachments = await attachmentRepo()
+      .createQueryBuilder('a')
+      .where('a.message_id IN (:...ids)', { ids: messageIds })
+      .getMany();
+    
+    const attachmentMap = new Map<string, any[]>();
+    attachments.forEach(att => {
+      if (!attachmentMap.has(att.messageId)) attachmentMap.set(att.messageId, []);
+      attachmentMap.get(att.messageId)!.push(att);
+    });
+    
+    // Add attachments and sender info to messages
+    messages.forEach(msg => {
+      (msg as any).attachments = attachmentMap.get(msg.id) || [];
+      (msg as any).sender = usersMap.get(msg.senderId) || null;
+    });
+  }
+  
   return messages.reverse();
 }
 
@@ -186,8 +259,24 @@ export async function sendMessage(
   
   // Handle attachments if provided
   if (attachments && attachments.length > 0) {
-    // TODO: Implement attachment storage
-    // For now, just log attachments - you'll need to implement file storage
+    const savedAttachments = [];
+    
+    for (const attachment of attachments) {
+      const savedAttachment = attachmentRepo().create({
+        id: uuid(),
+        messageId: message.id,
+        key: attachment.key,
+        url: attachment.url,
+        originalName: attachment.originalName,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      });
+      await attachmentRepo().save(savedAttachment);
+      savedAttachments.push(savedAttachment);
+    }
+    
+    // Add attachments to message response
+    (message as any).attachments = savedAttachments;
   }
   
   // Update last message
@@ -214,28 +303,35 @@ export async function sendMessage(
     createdAt: message.createdAt.toISOString(),
   });
   
+  // Publish to RabbitMQ for event-driven architecture
+  await publishNewMessage({
+    messageId: message.id,
+    senderId: userId,
+    receiverIds,
+    conversationId: conversation.id,
+    content: message.content,
+    contentType: message.contentType,
+    createdAt: message.createdAt.toISOString(),
+    attachments: (message as any).attachments || [],
+  });
+  
   return message;
 }
 
 // Media Upload Service
 export async function uploadMedia(userId: string, file: any) {
   try {
-    // TODO: Implement file storage (S3, local, etc.)
+    // Generate unique key and URL
     const key = `media/${uuid()}-${file.originalname}`;
-    const url = `http://localhost:3003/uploads/${key}`; // Temporary URL
+    const url = `http://localhost:3003/uploads/${key}`; // For now, use local storage
     
-    // Save file info to database (optional)
-    // await mediaRepo().save({
-    //   id: uuid(),
-    //   userId,
-    //   key,
-    //   originalName: file.originalname,
-    //   mimeType: file.mimetype,
-    //   size: file.size,
-    //   url,
-    // });
+    // In a production environment, you would:
+    // 1. Upload file to S3, CloudFront, or other storage service
+    // 2. Store the file info in database for tracking
+    // 3. Return the proper CDN URL
     
     return {
+      id: uuid(),
       key,
       url,
       originalName: file.originalname,
