@@ -30,6 +30,32 @@ router.get(
   }
 );
 
+router.patch(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+    body('content').isString().notEmpty(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.editMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId,
+        req.body.content
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
 router.get(
   '/:conversationId/:createdAt/:messageId',
   authenticate,

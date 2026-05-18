@@ -29,32 +29,12 @@ router.get('/search',
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
     
-    console.log('SEARCH REQUEST - Query:', req.query.q);
-    console.log('SEARCH REQUEST - Limit:', limit);
-    console.log('SEARCH REQUEST - Offset:', offset);
-    console.log('SEARCH REQUEST - User ID:', req.userId);
-    
     const users = await userService.search(
       req.query.q as string,
       limit,
       offset,
+      req.userId,
     );
-    
-    console.log('SEARCH RESULT - Found users:', users.length);
-    console.log('SEARCH RESULT - Users:', users.map(u => ({ id: u.id, username: u.username, displayName: u.displayName })));
-    
-    console.log('SEARCH RESPONSE - Sending to Frontend:', {
-      success: true,
-      data: users,
-      meta: {
-        total: users.length,
-        page: Math.floor(offset / limit) + 1,
-        limit: limit,
-        totalPages: Math.ceil(users.length / limit)
-      },
-      message: 'Search completed successfully',
-      timestamp: new Date().toISOString()
-    });
     
     res.json({
       success: true,
@@ -73,12 +53,17 @@ router.get('/search',
 
 /**
  * GET /users/:id
- * @header Authorization Bearer <accessToken>
  * @param  id string (uuid)
+ * NOTE: Không cần auth vì chat-service cần fetch user info
  */
-router.get('/:id', authenticate, async (req: AuthReq, res: Response) => {
-  try { res.json(await userService.getById(req.params.id)); }
-  catch (e: any) { res.status(404).json({ message: e.message }); }
+router.get('/:id', async (req: AuthReq, res: Response) => {
+  try { 
+    const user = await userService.getById(req.params.id); 
+    res.json(user); 
+  }
+  catch (e: any) { 
+    res.status(404).json({ message: e.message }); 
+  }
 });
 
 /**
@@ -88,10 +73,7 @@ router.get('/:id', authenticate, async (req: AuthReq, res: Response) => {
  */
 router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
   try {
-    console.log('PUT /users/me - Request body:', req.body);
-    console.log('PUT /users/me - Request userId:', req.userId);
     const updatedUser = await userService.updateById(req.userId!, req.body);
-    console.log('PUT /users/me - Updated user:', updatedUser);
     res.json({
       success: true,
       data: updatedUser,
@@ -99,7 +81,6 @@ router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
       timestamp: new Date().toISOString()
     });
   } catch (e: any) { 
-    console.log('PUT /users/me - Error:', e.message);
     res.status(400).json({ 
       success: false,
       message: e.message,

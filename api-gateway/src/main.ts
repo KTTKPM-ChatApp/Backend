@@ -1,9 +1,11 @@
 import express from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import { config } from './config';
 import { authenticate } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
+import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
 
 // Configure multer for file uploads
 const upload = multer({
@@ -22,6 +24,7 @@ app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.
 app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
 app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
 app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
+app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
 
 // User routes (protected)
 app.get('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
@@ -151,6 +154,7 @@ app.post('/api/conversations/:conversationId/messages', authenticate, (req, res)
 app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
 app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
 app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
 app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
 app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
 app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
@@ -158,9 +162,68 @@ app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(
 app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
 app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
 
+// Friend routes (protected)
+app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
+app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
+app.get('/api/friends/requests/sent', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/sent`));
+app.post('/api/friends/requests', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests`));
+app.put('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
+app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+
 // Media upload routes (protected)
 app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
 
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
+// Internal callback for chat-service to push real-time notifications
+app.post('/api/internal/message-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversationId, message } = req.body;
+  if (conversationId && message) {
+    notifyConversation(conversationId, message);
+  }
+  res.json({ ok: true });
+});
 
-app.listen(config.port, () => console.log(`API Gateway :${config.port}`));
+// Internal callback for new conversation created
+app.post('/api/internal/conversation-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversation } = req.body;
+  if (conversation) {
+    notifyNewConversation(conversation);
+  }
+  res.json({ ok: true });
+});
+
+// Internal callback for message read event
+app.post('/api/internal/message-read-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversationId, userId, messageId } = req.body;
+  if (conversationId && userId && messageId) {
+    notifyMessageRead(conversationId, userId, messageId);
+  }
+  res.json({ ok: true });
+});
+
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/api/presence/online', authenticate, (_, res) => {
+  res.json({ success: true, data: getOnlineUserIds() });
+});
+
+const httpServer = createServer(app);
+setupSocketIO(httpServer);
+
+httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));

@@ -28,12 +28,40 @@ export class RefreshToken {
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
 }
 
+@Entity('friend_requests')
+export class FriendRequest {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'sender_id' }) senderId!: string;
+  @Column({ name: 'receiver_id' }) receiverId!: string;
+  @Column({ name: 'request_message', type: 'text', nullable: true }) requestMessage?: string;
+  @Column({ default: 'pending' }) status!: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('friendships')
+export class Friendship {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'user_id' }) userId!: string;
+  @Column({ name: 'friend_id' }) friendId!: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
+@Entity('blocks')
+export class Block {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'blocker_id' }) blockerId!: string;
+  @Column({ name: 'blocked_id' }) blockedId!: string;
+  @Column({ type: 'text', nullable: true }) reason?: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
 export const AppDataSource = new DataSource({
   type: 'mariadb',
   ...config.db,
   synchronize: process.env.NODE_ENV !== 'production',
   logging: false,
-  entities: [User, RefreshToken],
+  entities: [User, RefreshToken, FriendRequest, Friendship, Block],
   connectorPackage: 'mysql2',
   extra: {
     connectionLimit: 10,

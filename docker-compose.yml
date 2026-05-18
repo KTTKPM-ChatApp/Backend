@@ -96,9 +96,14 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
       RABBITMQ_EXCHANGE: chat.events
       RABBITMQ_ROUTING_KEY_NEW_MESSAGE: chat.new_message
+      AUTH_SERVICE_URL: http://auth-service:3001
       # Kết nối tới realtime-service để push notification
       REALTIME_SERVICE_URL: http://realtime-service:8080
       INTERNAL_API_KEY: ktpm-internal-secret-key-2024
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ""
     ports:
       - "3003:3003"
 

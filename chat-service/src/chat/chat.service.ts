@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { AppDataSource, Conversation, ConversationMember, Message } from '../db';
 import { notifyNewMessage } from '../notifier';
+import { fetchUserInfo } from '../auth-client';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
@@ -23,22 +24,27 @@ export async function createConversation(
       throw new Error('Direct conversation requires exactly one other participant');
     }
     
-    const directKey = buildDirectKey(currentUserId, uniqueParticipants[0]);
+    const otherUserId = uniqueParticipants[0];
+    const directKey = buildDirectKey(currentUserId, otherUserId);
     const existing = await conversationRepo().findOneBy({ directKey });
     if (existing) {
       const members = await memberRepo().findBy({ conversationId: existing.id });
       return { ...existing, memberIds: members.map(m => m.userId) };
     }
     
+    const userInfo = await fetchUserInfo(otherUserId);
+    const convTitle = userInfo?.displayName ?? otherUserId;
+
     const conversation = conversationRepo().create({
       id: uuid(),
       type,
+      title: convTitle,
       createdBy: currentUserId,
       directKey,
     });
     await conversationRepo().save(conversation);
     
-    const memberIds = [currentUserId, uniqueParticipants[0]];
+    const memberIds = [currentUserId, otherUserId];
     await memberRepo().save(memberIds.map(userId => 
       memberRepo().create({ conversationId: conversation.id, userId })
     ));

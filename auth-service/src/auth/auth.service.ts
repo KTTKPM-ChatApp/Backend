@@ -55,13 +55,39 @@ export async function login(email: string, password: string) {
   return { accessToken, refreshToken, user: pub };
 }
 
+const parseExpiresIn = (val: string): number => {
+  const match = val.match(/^(\d+)([dhms])$/);
+  if (!match) return 3600;
+  const n = parseInt(match[1]);
+  switch (match[2]) {
+    case 'd': return n * 86400;
+    case 'h': return n * 3600;
+    case 'm': return n * 60;
+    case 's': return n;
+    default: return 3600;
+  }
+};
+
 export async function refresh(refreshToken: string) {
   const record = await tokenRepo().findOneBy({ token: refreshToken });
   if (!record || record.expiresAt < new Date()) throw new Error('Invalid or expired refresh token');
 
   const p = jwt.verify(refreshToken, config.jwt.refreshSecret) as JwtPayload;
-  const accessToken = jwt.sign({ sub: p.sub, email: p.email }, config.jwt.secret, { expiresIn: config.jwt.expiresIn as any });
-  return { accessToken };
+  const expiresIn = parseExpiresIn(config.jwt.expiresIn as string);
+  const accessToken = jwt.sign({ sub: p.sub, email: p.email }, config.jwt.secret, { expiresIn });
+  return { accessToken, expiresIn };
+}
+
+export async function changePassword(userId: string, oldPassword: string, newPassword: string) {
+  const user = await userRepo().findOneBy({ id: userId });
+  if (!user) throw new Error('User not found');
+  if (!await bcrypt.compare(oldPassword, user.passwordHash)) throw new Error('Current password is incorrect');
+  
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  await userRepo().save(user);
+
+  await tokenRepo().delete({ userId });
+  return { message: 'Password changed successfully' };
 }
 
 export async function logout(userId: string, refreshToken?: string) {

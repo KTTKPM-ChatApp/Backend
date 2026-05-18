@@ -57,6 +57,24 @@ router.post('/refresh', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /auth/change-password
+ * @header Authorization Bearer <accessToken>
+ * @body   oldPassword string
+ * @body   newPassword string (min 6)
+ */
+router.post('/change-password',
+  authenticate,
+  [body('oldPassword').notEmpty(), body('newPassword').isLength({ min: 6 })],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await authService.changePassword(req.userId!, req.body.oldPassword, req.body.newPassword);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  }
+);
+
+/**
  * POST /auth/logout
  * @header Authorization Bearer <accessToken>
  * @body   refreshToken string (optional — omit to revoke all sessions)

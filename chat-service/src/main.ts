@@ -4,6 +4,7 @@ import cors from 'cors';
 import { AppDataSource, ensureDatabase } from './db';
 import { config } from './config';
 import { connectRabbitMQ, closeRabbitMQ, getRabbitMQStatus } from './rabbitmq';
+import { connectRedis, closeRedis, getRedisStatus } from './redis';
 import chatRouter from './chat/chat.router';
 import messageRouter from './messages/message.router';
 
@@ -39,7 +40,8 @@ app.get('/ready', async (_, res) => {
     dbError = 'DataSource is not initialized';
   }
 
-  const rabbit = getRabbitMQStatus();
+const rabbit = getRabbitMQStatus();
+  const redis = getRedisStatus();
 
   const ready = dbInitialized && dbPingOk;
   const statusCode = ready ? 200 : 503;
@@ -56,6 +58,7 @@ app.get('/ready', async (_, res) => {
         database: config.db.database,
       },
       rabbitmq: rabbit,
+      redis: redis,
     },
     timestamp: new Date().toISOString(),
   });
@@ -99,6 +102,7 @@ async function bootstrap() {
     await initDatabaseWithRetry();
 
     await connectRabbitMQ();
+    await connectRedis();
 
     app.listen(config.port, () => {
       console.log(`chat-service running on port ${config.port}`);
@@ -111,6 +115,7 @@ async function bootstrap() {
 
 process.on('SIGTERM', async () => {
   await closeRabbitMQ();
+  await closeRedis();
   if (AppDataSource.isInitialized) {
     await AppDataSource.destroy();
   }
