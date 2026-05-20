@@ -138,17 +138,19 @@ router.post('/:conversationId/messages',
     body('content').isString().notEmpty(),
     body('contentType').optional().isString(),
     body('attachments').optional().isArray(),
+    body('reply_to_id').optional({ nullable: true }).isString(),
   ],
   validate,
   async (req: AuthReq, res: Response) => {
     try {
-      const { content, contentType, attachments } = req.body;
+      const { content, contentType, attachments, reply_to_id } = req.body;
       const message = await chatService.sendMessage(
         req.userId!,
         req.params.conversationId,
         content,
         contentType,
-        attachments || []
+        attachments || [],
+        reply_to_id || null
       );
       res.status(201).json(message);
     } catch (e: any) {

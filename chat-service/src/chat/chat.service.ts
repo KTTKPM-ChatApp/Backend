@@ -49,7 +49,7 @@ export async function createConversation(
     
     const memberIds = [currentUserId, otherUserId];
     await memberRepo().save(memberIds.map(userId => 
-      memberRepo().create({ conversationId: conversation.id, userId })
+      memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
     ));
     
     return { ...conversation, memberIds };
@@ -73,7 +73,7 @@ export async function createConversation(
   
   const memberIds = [currentUserId, ...uniqueParticipants];
   await memberRepo().save(memberIds.map(userId => 
-    memberRepo().create({ conversationId: conversation.id, userId })
+    memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
   ));
   
   return { ...conversation, memberIds };
@@ -238,7 +238,8 @@ export async function sendMessage(
   conversationId: string,
   content: string,
   contentType = 'TEXT',
-  attachments: any[] = []
+  attachments: any[] = [],
+  replyToId?: string | null
 ) {
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (!conversation) throw new Error('Conversation not found');
@@ -255,8 +256,10 @@ export async function sendMessage(
     senderId: userId,
     contentType,
     content: trimmedContent,
+    replyToId: replyToId || undefined,
   });
   await messageRepo().save(message);
+  console.log(`[sendMessage] saved message ${message.id}, replyToId=${message.replyToId}`);
   
   // Handle attachments if provided
   if (attachments && attachments.length > 0) {

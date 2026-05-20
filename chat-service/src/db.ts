@@ -11,6 +11,7 @@ export class Conversation {
   @Column('varchar', { length: 36, name: 'created_by' }) createdBy!: string;
   @Column('varchar', { length: 255, nullable: true, name: 'direct_key' }) directKey?: string;
   @Column('varchar', { length: 500, nullable: true, name: 'avatar_url' }) avatarUrl?: string;
+  @Column('varchar', { length: 500, nullable: true }) description?: string;
   @Column('varchar', { length: 36, nullable: true, name: 'last_message_id' }) lastMessageId?: string;
   @Column('text', { nullable: true, name: 'last_message_preview' }) lastMessagePreview?: string;
   @Column('datetime', { nullable: true, name: 'last_message_at' }) lastMessageAt?: Date;
@@ -27,7 +28,7 @@ export class ConversationMember {
   @Column('varchar', { length: 100, name: 'nickname', nullable: true }) nickname?: string;
   @Column('boolean', { name: 'is_muted', default: false }) isMuted!: boolean;
   @Column('datetime', { name: 'last_read_at', nullable: true }) lastReadAt?: Date;
-  @Column('datetime', { name: 'joined_at' }) joinedAt!: Date;
+  @Column('datetime', { name: 'joined_at', default: () => 'CURRENT_TIMESTAMP' }) joinedAt!: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }
@@ -254,7 +255,8 @@ entities: [
     ConversationCall,
     ConversationSettings,
     UserPinnedConversation,
-    MessageRead
+    MessageRead,
+    User,
   ],
   connectorPackage: 'mysql2',
 });

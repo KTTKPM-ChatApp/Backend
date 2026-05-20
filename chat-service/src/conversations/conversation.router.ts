@@ -55,16 +55,18 @@ router.post('/group',
     body('memberIds').isArray({ min: 1, max: 100 }),
     body('memberIds.*').isUUID(),
     body('avatarUrl').optional().isURL(),
+    body('description').optional().isString().isLength({ max: 500 }),
   ],
   validate,
   async (req: AuthReq, res: Response) => {
     try {
-      const { name, memberIds, avatarUrl } = req.body;
+      const { name, memberIds, avatarUrl, description } = req.body;
       const conversation = await conversationService.createGroupConversation(
         req.userId!,
         name,
         memberIds,
-        avatarUrl
+        avatarUrl,
+        description
       );
       res.status(201).json(conversation);
     } catch (e: any) {

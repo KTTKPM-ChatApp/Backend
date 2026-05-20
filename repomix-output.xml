@@ -86,6 +86,7 @@ debug-displayname.js
 docker-compose.yml
 notification-service/.gitkeep
 package.json
+README.md
 realtime-service/.gitattributes
 realtime-service/.gitignore
 realtime-service/.mvn/wrapper/maven-wrapper.properties
@@ -760,46 +761,6 @@ export async function getFriendshipStatus(userId: string, targetId: string): Pro
 }
 </file>
 
-<file path="auth-service/src/middleware.ts">
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { validationResult } from 'express-validator';
-import { config } from './config';
-
-export interface AuthReq extends Request {
-  userId?: string;
-  userEmail?: string;
-}
-
-interface JwtPayload {
-  sub: string;
-  email: string;
-}
-
-export function authenticate(req: AuthReq, res: Response, next: NextFunction): void {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) { res.status(401).json({ message: 'Unauthorized' }); return; }
-  try {
-    const p = jwt.verify(token, config.jwt.secret) as JwtPayload;
-    req.userId = p.sub;
-    req.userEmail = p.email;
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
-
-export function validate(req: Request, res: Response, next: NextFunction): void {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    console.log('[Validator] Failed:', req.originalUrl, errors.array(), 'Body:', req.body);
-    res.status(400).json({ errors: errors.array() });
-    return;
-  }
-  next();
-}
-</file>
-
 <file path="auth-service/tsconfig.json">
 {
   "compilerOptions": {
@@ -1101,6 +1062,145 @@ debugDisplayName();
     "axios": "^1.16.0"
   }
 }
+</file>
+
+<file path="README.md">
+# Zalo Chat Application
+
+## Tổng quan
+
+Ứng dụng chat Zalo-like với các tính năng:
+- Chat nhắn tin cá nhân và nhóm
+- Pin/Unpin tin nhắn
+- Gọi thoại/gọi video
+- Quản lý bạn bè
+- Tìm kiếm người dùng
+
+## Yêu cầu
+
+- Node.js 20+
+- Docker & Docker Compose
+- MySQL (MariaDB)
+- Redis
+- RabbitMQ
+
+## Cài đặt
+
+### 1. Clone và cài đặt Backend
+
+```bash
+cd Backend
+cp .env.example .env
+# Chỉnh sửa .env với các giá trị phù hợp
+docker-compose up -d
+```
+
+### 2. Cài đặt Frontend
+
+```bash
+cd Frontend_Web
+npm install
+npm run dev
+```
+
+## Hướng dẫn sử dụng
+
+### Đăng ký tài khoản mới
+
+1. Mở trình duyệt tại `http://localhost:3000`
+2. Click "Đăng ký" 
+3. Điền thông tin:
+   - **Tên đăng nhập**: Ít nhất 3 ký tự
+   - **Email**: Địa chỉ email hợp lệ
+   - **Mật khẩu**: Ít nhất 6 ký tự
+   - **Tên hiển thị**: Tên sẽ hiển thị trong chat
+
+### Đăng nhập
+
+1. Click "Đăng nhập"
+2. Nhập **email** và **mật khẩu** đã đăng ký
+3. Click nút đăng nhập
+
+### Tạo cuộc trò chuyện mới
+
+1. Click vào icon "Tin nhắn mới" (dấu +)
+2. Tìm kiếm người dùng theo tên hoặc email
+3. Chọn người để bắt đần chat
+
+### Tạo nhóm chat
+
+1. Click vào icon "Tin nhắn mới"
+2. Click "Tạo nhóm"
+3. Chọn thành viên từ danh sách bạn bè
+4. Đặt tên nhóm và tạo
+
+### Pin tin nhắn
+
+1. Click chuột phải vào tin nhắn
+2. Chọn "Ghim" để ghim tin nhắn lên đầu
+3. Để bỏ ghim, click chuột phải và chọn "Bỏ ghim"
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/register` - Đăng ký
+- `POST /api/auth/login` - Đăng nhập
+- `POST /api/auth/refresh` - Refresh token
+- `POST /api/auth/change-password` - Đổi mật khẩu
+
+### Conversations
+- `GET /api/conversations` - Danh sách cuộc trò chuyện
+- `POST /api/conversations` - Tạo cuộc trò chuyện
+- `GET /api/conversations/:id` - Chi tiết cuộc trò chuyện
+- `DELETE /api/conversations/:id` - Xóa nhóm
+
+### Messages
+- `GET /api/conversations/:id/messages` - Danh sách tin nhắn
+- `POST /api/conversations/:id/messages` - Gửi tin nhắn
+- `DELETE /api/messages/:convId/:createdAt/:msgId` - Xóa tin nhắn
+- `POST /api/conversations/:id/:createdAt/:msgId/pin` - Ghim tin nhắn
+- `DELETE /api/conversations/:id/:createdAt/:msgId/pin` - Bỏ ghim tin nhắn
+- `GET /api/conversations/:id/pins` - Danh sách tin nhắn đã ghim
+
+### Friends
+- `GET /api/friends` - Danh sách bạn bè
+- `GET /api/friends/requests/pending` - Lời mời kết bạn
+- `POST /api/friends/requests` - Gửi lời mời kết bạn
+- `PUT /api/friends/requests/:id` - Chấp nhận/Từ chối
+
+## Cấu trúc dự án
+
+```
+Backend/
+├── api-gateway/     # API Gateway (Port 4321)
+├── auth-service/    # Auth Service (Port 3001)
+├── chat-service/    # Chat Service (Port 3003)
+└── realtime-service/ # Realtime Service (Port 8080)
+
+Frontend_Web/
+├── src/
+│   ├── app/         # Next.js pages
+│   ├── common/     # Shared code (services, hooks, stores)
+│   └── components/ # Reusable components
+```
+
+## Giải quyết vấn đề
+
+### Không thể đăng nhập
+- Kiểm tra backend đang chạy: `docker ps`
+- Kiểm tra logs: `docker logs <container-name>`
+
+### Tin nhắn không gửi được
+- Kiểm tra kết nối WebSocket
+- Kiểm tra logs của chat-service
+
+### Lỗi kết nối database
+- Kiểm tra MariaDB đang chạy: `docker ps | grep mariadb`
+- Kiểm tra biến môi trường DB trong .env
+
+## License
+
+MIT
 </file>
 
 <file path="realtime-service/.gitattributes">
@@ -2583,25 +2683,6 @@ coverage/
 repomix-output.xml
 </file>
 
-<file path="api-gateway/Dockerfile">
-# ─── Stage 1: Build ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-# ─── Stage 2: Runtime ───────────────────────────────────────────────────────
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY --from=builder /app/dist ./dist
-EXPOSE 3000
-CMD ["node", "dist/main.js"]
-</file>
-
 <file path="api-gateway/src/config.ts">
 import 'dotenv/config';
 
@@ -2671,797 +2752,44 @@ export const config = {
 };
 </file>
 
-<file path="chat-service/src/conversations/conversation.router.ts">
-import { Router, Response } from 'express';
-import { body, query, param } from 'express-validator';
-import { authenticate, validate, AuthReq } from '../middleware';
-import * as conversationService from './conversation.service';
+<file path="auth-service/src/middleware.ts">
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { validationResult } from 'express-validator';
+import { config } from './config';
 
-const router = Router();
+export interface AuthReq extends Request {
+  userId?: string;
+  userEmail?: string;
+}
 
-// 1. Quản lý Conversation cơ bản
+interface JwtPayload {
+  sub: string;
+  email: string;
+}
 
-// 1.1 Lấy danh sách conversations
-router.get('/',
-  authenticate,
-  [
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const page = req.query.page ? Number(req.query.page) : 1;
-      const limit = req.query.limit ? Number(req.query.limit) : 20;
-      const result = await conversationService.listConversations(req.userId!, page, limit);
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
+export function authenticate(req: AuthReq, res: Response, next: NextFunction): void {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) { res.status(401).json({ message: 'Unauthorized' }); return; }
+  try {
+    const p = jwt.verify(token, config.jwt.secret) as JwtPayload;
+    req.userId = p.sub;
+    req.userEmail = p.email;
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid token' });
   }
-);
+}
 
-// 1.2 Lấy conversation theo ID
-router.get('/:conversationId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const conversation = await conversationService.getConversationById(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json(conversation);
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
+export function validate(req: Request, res: Response, next: NextFunction): void {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    console.log('[Validator] Failed:', req.originalUrl, errors.array(), 'Body:', req.body);
+    res.status(400).json({ errors: errors.array() });
+    return;
   }
-);
-
-// 1.3 Tạo conversation nhóm
-router.post('/group',
-  authenticate,
-  [
-    body('name').isString().notEmpty().isLength({ max: 255 }),
-    body('memberIds').isArray({ min: 1, max: 100 }),
-    body('memberIds.*').isUUID(),
-    body('avatarUrl').optional().isURL(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { name, memberIds, avatarUrl } = req.body;
-      const conversation = await conversationService.createGroupConversation(
-        req.userId!,
-        name,
-        memberIds,
-        avatarUrl
-      );
-      res.status(201).json(conversation);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 1.4 Tạo conversation trực tiếp
-router.post('/direct',
-  authenticate,
-  [
-    body('participantId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const conversation = await conversationService.createDirectConversation(
-        req.userId!,
-        req.body.participantId
-      );
-      res.status(201).json(conversation);
-    } catch (e: any) {
-      console.error('[createDirectConversation] Error:', e);
-      res.status(400).json({ message: e.message, stack: e.stack });
-    }
-  }
-);
-
-// 1.5 Cập nhật conversation
-router.patch('/:conversationId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('name').optional().isString().isLength({ max: 255 }),
-    body('avatarUrl').optional().isURL(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { name, avatarUrl } = req.body;
-      const conversation = await conversationService.updateConversation(
-        req.userId!,
-        req.params.conversationId,
-        name,
-        avatarUrl
-      );
-      res.json(conversation);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 2. Quản lý Thành viên
-
-// 2.1 Thêm thành viên
-router.post('/:conversationId/members',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('memberIds').isArray({ min: 1, max: 50 }),
-    body('memberIds.*').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { memberIds } = req.body;
-      const result = await conversationService.addMembers(
-        req.userId!,
-        req.params.conversationId,
-        memberIds
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 2.2 Xóa thành viên
-router.delete('/:conversationId/members/:memberId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('memberId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.removeMember(
-        req.userId!,
-        req.params.conversationId,
-        req.params.memberId
-      );
-      res.json({ message: 'Member removed successfully' });
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 2.3 Rời conversation
-router.post('/:conversationId/leave',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.leaveConversation(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json({ message: 'Left conversation successfully' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 2.4 Cập nhật vai trò thành viên
-router.patch('/:conversationId/members/:memberId/role',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('memberId').isUUID(),
-    body('role').isIn(['admin', 'member']),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { role } = req.body;
-      const result = await conversationService.updateMemberRole(
-        req.userId!,
-        req.params.conversationId,
-        req.params.memberId,
-        role.toUpperCase()
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 2.5 Cập nhật cài đặt cá nhân
-router.patch('/:conversationId/settings',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('nickname').optional().isString().isLength({ max: 100 }),
-    body('isMuted').optional().isBoolean(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { nickname, isMuted } = req.body;
-      const result = await conversationService.updateUserSettings(
-        req.userId!,
-        req.params.conversationId,
-        nickname,
-        isMuted
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 3. Quản lý Lời mời nhóm
-
-// 3.1 Gửi lời mời
-router.post('/:conversationId/invites',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('userIds').isArray({ min: 1, max: 50 }),
-    body('userIds.*').isUUID(),
-    body('message').optional().isString().isLength({ max: 500 }),
-    body('expiresInHours').optional().isInt({ min: 1, max: 168 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { userIds, message, expiresInHours } = req.body;
-      const result = await conversationService.sendInvites(
-        req.userId!,
-        req.params.conversationId,
-        userIds,
-        message,
-        expiresInHours
-      );
-      res.status(201).json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 3.2 Lấy lời mời đang chờ
-router.get('/invites/pending',
-  authenticate,
-  [
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-    query('status').optional().isIn(['pending', 'accepted', 'rejected']),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const page = req.query.page ? Number(req.query.page) : 1;
-      const limit = req.query.limit ? Number(req.query.limit) : 20;
-      const status = req.query.status as string | undefined;
-      const result = await conversationService.getPendingInvites(
-        req.userId!,
-        page,
-        limit,
-        status?.toUpperCase()
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 3.3 Chấp nhận lời mời
-router.post('/:conversationId/invites/:inviteId/accept',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('inviteId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const result = await conversationService.acceptInvite(
-        req.userId!,
-        req.params.conversationId,
-        req.params.inviteId
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 3.4 Từ chối lời mời
-router.post('/:conversationId/invites/:inviteId/reject',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('inviteId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.rejectInvite(
-        req.userId!,
-        req.params.conversationId,
-        req.params.inviteId
-      );
-      res.json({ message: 'Invite rejected' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 3.5 Hủy lời mời
-router.post('/:conversationId/invites/:inviteId/cancel',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('inviteId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.cancelInvite(
-        req.userId!,
-        req.params.conversationId,
-        req.params.inviteId
-      );
-      res.json({ message: 'Invite cancelled' });
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 4. Quản lý Poll (Bình chọn)
-
-// 4.1 Tạo poll
-router.post('/:conversationId/polls',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('question').isString().isLength({ min: 1, max: 500 }),
-    body('options').isArray({ min: 2, max: 20 }),
-    body('options.*').isString().isLength({ min: 1, max: 200 }),
-    body('allow_multiple').optional().isBoolean(),
-    body('allow_add_option').optional().isBoolean(),
-    body('is_anonymous').optional().isBoolean(),
-    body('expires_in_hours').optional().isInt({ min: 1, max: 168 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const pollData = req.body;
-      const poll = await conversationService.createPoll(
-        req.userId!,
-        req.params.conversationId,
-        pollData
-      );
-      res.status(201).json(poll);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 4.2 Lấy danh sách polls
-router.get('/:conversationId/polls',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('status').optional().isIn(['open', 'closed']),
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const page = req.query.page ? Number(req.query.page) : 1;
-      const limit = req.query.limit ? Number(req.query.limit) : 20;
-      const status = req.query.status as string | undefined;
-      const result = await conversationService.listPolls(
-        req.userId!,
-        req.params.conversationId,
-        status?.toUpperCase(),
-        page,
-        limit
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 4.3 Chi tiết poll
-router.get('/:conversationId/polls/:pollId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const poll = await conversationService.getPollDetails(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId
-      );
-      res.json(poll);
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-// 4.4 Chỉnh sửa poll
-router.patch('/:conversationId/polls/:pollId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-    body('question').optional().isString().isLength({ min: 1, max: 500 }),
-    body('allow_multiple').optional().isBoolean(),
-    body('allow_add_option').optional().isBoolean(),
-    body('expires_at').optional().isISO8601(),
-    body('edited_option_labels').optional().isArray(),
-    body('edited_option_labels.*.id').isUUID(),
-    body('edited_option_labels.*.label').isString().isLength({ min: 1, max: 200 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const updateData = req.body;
-      const poll = await conversationService.updatePoll(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId,
-        updateData
-      );
-      res.json(poll);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 4.5 Bình chọn
-router.post('/:conversationId/polls/:pollId/vote',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-    body('option_ids').isArray({ min: 1, max: 20 }),
-    body('option_ids.*').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { option_ids } = req.body;
-      const result = await conversationService.votePoll(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId,
-        option_ids
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 4.6 Thu hồi bình chọn
-router.delete('/:conversationId/polls/:pollId/vote',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.withdrawVote(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId
-      );
-      res.json({ message: 'Vote withdrawn' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 4.7 Thêm lựa chọn
-router.post('/:conversationId/polls/:pollId/options',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-    body('label').isString().isLength({ min: 1, max: 200 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { label } = req.body;
-      const result = await conversationService.addPollOption(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId,
-        label
-      );
-      res.status(201).json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 4.8 Xóa lựa chọn
-router.delete('/:conversationId/polls/:pollId/options/:optionId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-    param('optionId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.removePollOption(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId,
-        req.params.optionId
-      );
-      res.json({ message: 'Option removed' });
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 4.9 Đóng poll
-router.post('/:conversationId/polls/:pollId/close',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('pollId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const poll = await conversationService.closePoll(
-        req.userId!,
-        req.params.conversationId,
-        req.params.pollId
-      );
-      res.json(poll);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 5. Quản lý Call (Cuộc gọi)
-
-// 5.1 Lấy ICE servers
-router.get('/ice-servers',
-  authenticate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const iceServers = await conversationService.getIceServers();
-      res.json(iceServers);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  }
-);
-
-// 5.2 Lịch sử cuộc gọi
-router.get('/:conversationId/calls',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const page = req.query.page ? Number(req.query.page) : 1;
-      const limit = req.query.limit ? Number(req.query.limit) : 20;
-      const result = await conversationService.getCallHistory(
-        req.userId!,
-        req.params.conversationId,
-        page,
-        limit
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 5.3 Trạng thái cuộc gọi
-router.get('/:conversationId/call-state',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const callState = await conversationService.getCallState(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json(callState);
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-// 5.4 Kết thúc cuộc gọi
-router.post('/:conversationId/calls/:callId/end',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('callId').isUUID(),
-    body('reason').optional().isString().isLength({ max: 255 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { reason } = req.body;
-      const result = await conversationService.endCall(
-        req.userId!,
-        req.params.conversationId,
-        req.params.callId,
-        reason
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 6. Các chức năng khác
-
-// 6.1 Đánh dấu đã đọc
-router.post('/:conversationId/read',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.markAsRead(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json({ message: 'Conversation marked as read' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 6.2 Ghim conversation
-router.post('/:conversationId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.pinConversation(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json({ message: 'Conversation pinned' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 6.3 Bỏ ghim conversation
-router.delete('/:conversationId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.unpinConversation(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json({ message: 'Conversation unpinned' });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-// 6.4 Cập nhật cài đặt nhóm
-router.patch('/:conversationId/group-settings',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    body('permissions').optional().isObject(),
-    body('policies').optional().isObject(),
-    body('features').optional().isObject(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { permissions, policies, features } = req.body;
-      const result = await conversationService.updateGroupSettings(
-        req.userId!,
-        req.params.conversationId,
-        permissions,
-        policies,
-        features
-      );
-      res.json(result);
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-// 6.5 Giải tán nhóm
-router.post('/:conversationId/disband',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      await conversationService.disbandGroup(
-        req.userId!,
-        req.params.conversationId
-      );
-      res.json({ message: 'Group disbanded' });
-    } catch (e: any) {
-      res.status(403).json({ message: e.message });
-    }
-  }
-);
-
-export default router;
+  next();
+}
 </file>
 
 <file path="chat-service/src/conversations/conversation.service.ts">
@@ -3643,7 +2971,8 @@ export async function createGroupConversation(
   createdBy: string,
   name: string,
   memberIds: string[],
-  avatarUrl?: string
+  avatarUrl?: string,
+  description?: string
 ) {
   const uniqueMembers = [...new Set(memberIds.filter(id => id !== createdBy))];
   
@@ -3662,7 +2991,8 @@ export async function createGroupConversation(
     type: 'GROUP',
     title: name.trim(),
     createdBy,
-    avatarUrl
+    avatarUrl,
+    description: description?.trim() || undefined
   });
   await conversationRepo().save(conversation);
   
@@ -4728,685 +4058,6 @@ export async function disbandGroup(
 }
 </file>
 
-<file path="chat-service/src/messages/message.router.ts">
-import { Router, Response } from 'express';
-import { body, param, query } from 'express-validator';
-import { authenticate, AuthReq, validate } from '../middleware';
-import * as messageService from './message.service';
-
-const router = Router();
-
-router.get(
-  '/:conversationId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('cursor').optional().isString(),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const limit = req.query.limit ? Number(req.query.limit) : 50;
-      const data = await messageService.listMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.cursor as string | undefined,
-        limit
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.patch(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-    body('content').isString().notEmpty(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.editMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId,
-        req.body.content
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const message = await messageService.getMessageDetail(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data: message });
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/search',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('q').optional().isString(),
-    query('senderId').optional().isUUID(),
-    query('from').optional().isInt(),
-    query('to').optional().isInt(),
-    query('fileType').optional().isIn(['images', 'video', 'files']),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.searchMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.q as string | undefined,
-        req.query.senderId as string | undefined,
-        req.query.from ? Number(req.query.from) : undefined,
-        req.query.to ? Number(req.query.to) : undefined,
-        req.query.fileType as string | undefined
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.post(
-  '/forward',
-  authenticate,
-  [
-    body('forward_id').isUUID(),
-    body('source_message_id').isUUID(),
-    body('targets').isArray({ min: 1, max: 20 }),
-    body('targets.*.message_id').optional().isUUID(),
-    body('targets.*.conversation_id').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.forwardMessage(
-        req.userId!,
-        req.body.forward_id,
-        req.body.source_message_id,
-        req.body.targets
-      );
-      res.status(201).json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.post(
-  '/:conversationId/:createdAt/:messageId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.pinMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.delete(
-  '/:conversationId/:createdAt/:messageId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.unpinMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/pins',
-  authenticate,
-  [param('conversationId').isUUID(), query('limit').optional().isInt({ min: 1, max: 100 })],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.listPinnedMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.limit ? Number(req.query.limit) : 20
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:messageId/reactions',
-  authenticate,
-  [param('messageId').isUUID()],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.getMessageReactions(req.userId!, req.params.messageId);
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/v1/messages/lookup/:messageId',
-  [param('messageId').isUUID()],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.lookupMessageById(req.params.messageId);
-      if (!data) {
-        res.status(404).json({ message: 'Message not found' });
-        return;
-      }
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.delete(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.deleteMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-export default router;
-</file>
-
-<file path="chat-service/src/messages/message.service.ts">
-import { v4 as uuid } from 'uuid';
-import {
-  AppDataSource,
-  ConversationMember,
-  Message,
-  MessageForward,
-  MessagePin,
-  MessageReaction,
-} from '../db';
-
-const memberRepo = () => AppDataSource.getRepository(ConversationMember);
-const messageRepo = () => AppDataSource.getRepository(Message);
-const pinRepo = () => AppDataSource.getRepository(MessagePin);
-const reactionRepo = () => AppDataSource.getRepository(MessageReaction);
-const forwardRepo = () => AppDataSource.getRepository(MessageForward);
-
-async function ensureMember(userId: string, conversationId: string) {
-  const member = await memberRepo().findOneBy({ userId, conversationId });
-  if (!member) {
-    throw new Error('You are not a member of this conversation');
-  }
-  return member;
-}
-
-function toEpoch(value: Date | string | number) {
-  return new Date(value).getTime();
-}
-
-export async function listMessages(
-  userId: string,
-  conversationId: string,
-  cursor?: string,
-  limit: number = 50
-) {
-  await ensureMember(userId, conversationId);
-
-  const safeLimit = Math.max(1, Math.min(limit, 100));
-  const qb = messageRepo()
-    .createQueryBuilder('m')
-    .where('m.conversation_id = :conversationId', { conversationId })
-    .orderBy('m.created_at', 'DESC')
-    .addOrderBy('m.id', 'DESC')
-    .limit(safeLimit + 1);
-
-  if (cursor) {
-    qb.andWhere('m.created_at < :cursorDate', { cursorDate: new Date(cursor) });
-  }
-
-  const rows = await qb.getMany();
-  const hasMore = rows.length > safeLimit;
-  const items = hasMore ? rows.slice(0, safeLimit) : rows;
-
-  const normalized = items
-    .reverse()
-    .map((msg) => ({
-      ...msg,
-      messageId: msg.id,
-      body: msg.content,
-      createdAt: toEpoch(msg.createdAt),
-      isDeleted: false,
-      replyToMessageId: msg.replyToId || null,
-    }));
-
-  const nextCursor =
-    hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
-
-  return {
-    items: normalized,
-    nextCursor,
-    hasMore,
-  };
-}
-
-export async function getMessageDetail(
-  userId: string,
-  conversationId: string,
-  createdAt: number,
-  messageId: string
-) {
-  await ensureMember(userId, conversationId);
-
-  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
-  if (!message) throw new Error('Message not found');
-
-  if (Math.abs(toEpoch(message.createdAt) - createdAt) > 60000) {
-    throw new Error('Message timestamp mismatch');
-  }
-
-  return {
-    ...message,
-    messageId: message.id,
-    body: message.content,
-    createdAt: toEpoch(message.createdAt),
-    isDeleted: false,
-    replyToMessageId: message.replyToId || null,
-  };
-}
-
-export async function searchMessages(
-  userId: string,
-  conversationId: string,
-  query?: string,
-  senderId?: string,
-  from?: number,
-  to?: number,
-  fileType?: string
-) {
-  await ensureMember(userId, conversationId);
-
-  const qb = messageRepo()
-    .createQueryBuilder('m')
-    .where('m.conversation_id = :conversationId', { conversationId })
-    .orderBy('m.created_at', 'DESC')
-    .addOrderBy('m.id', 'DESC')
-    .limit(100);
-
-  if (query) {
-    qb.andWhere('m.content LIKE :q', { q: `%${query}%` });
-  }
-
-  if (senderId) {
-    qb.andWhere('m.sender_id = :senderId', { senderId });
-  }
-
-  if (from) {
-    qb.andWhere('m.created_at >= :fromDate', { fromDate: new Date(from) });
-  }
-
-  if (to) {
-    qb.andWhere('m.created_at <= :toDate', { toDate: new Date(to) });
-  }
-
-  const rows = await qb.getMany();
-  const filtered = fileType
-    ? rows.filter((row) => {
-        const attachments = Array.isArray(row.attachments) ? row.attachments : [];
-        if (fileType === 'images') {
-          return attachments.some((a: any) => String(a?.contentType || '').startsWith('image/'));
-        }
-        if (fileType === 'video') {
-          return attachments.some((a: any) => String(a?.contentType || '').startsWith('video/'));
-        }
-        if (fileType === 'files') {
-          return attachments.some((a: any) => !String(a?.contentType || '').startsWith('image/') && !String(a?.contentType || '').startsWith('video/'));
-        }
-        return true;
-      })
-    : rows;
-
-  return filtered.map((msg) => ({
-    ...msg,
-    messageId: msg.id,
-    body: msg.content,
-    createdAt: toEpoch(msg.createdAt),
-    isDeleted: false,
-    replyToMessageId: msg.replyToId || null,
-  }));
-}
-
-export async function forwardMessage(
-  userId: string,
-  forwardId: string,
-  sourceMessageId: string,
-  targets: Array<{ message_id: string; conversation_id: string }>
-) {
-  if (!forwardId) throw new Error('forward_id is required');
-  if (!sourceMessageId) throw new Error('source_message_id is required');
-  if (!Array.isArray(targets) || targets.length === 0) {
-    throw new Error('targets is required');
-  }
-  if (targets.length > 20) throw new Error('Maximum 20 targets');
-
-  const existing = await forwardRepo().findOneBy({ forwardId, senderId: userId });
-  if (existing) {
-    return {
-      message: 'Forward already processed',
-      forwardId,
-      duplicated: true,
-      targets: existing.targets,
-    };
-  }
-
-  const source = await messageRepo().findOneBy({ id: sourceMessageId });
-  if (!source) throw new Error('Source message not found');
-  await ensureMember(userId, source.conversationId);
-
-  const uniqueTargets = Array.from(
-    new Map(targets.map((t) => [t.conversation_id, t])).values()
-  );
-
-  for (const target of uniqueTargets) {
-    await ensureMember(userId, target.conversation_id);
-  }
-
-  const inserts = uniqueTargets.map((target) =>
-    messageRepo().create({
-      id: target.message_id || uuid(),
-      conversationId: target.conversation_id,
-      senderId: userId,
-      contentType: source.contentType,
-      content: source.content,
-      attachments: source.attachments || [],
-      replyToId: undefined,
-      isEdited: false,
-    })
-  );
-
-  await messageRepo().save(inserts);
-
-  await forwardRepo().save(
-    forwardRepo().create({
-      id: uuid(),
-      forwardId,
-      senderId: userId,
-      sourceMessageId,
-      targets: uniqueTargets,
-    })
-  );
-
-  return {
-    message: 'Forward success',
-    forwardId,
-    duplicated: false,
-    count: inserts.length,
-  };
-}
-
-export async function pinMessage(
-  userId: string,
-  conversationId: string,
-  createdAt: number,
-  messageId: string
-) {
-  const member = await ensureMember(userId, conversationId);
-  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
-  if (!message) throw new Error('Message not found');
-  if (Math.abs(toEpoch(message.createdAt) - createdAt) > 60000) {
-    throw new Error('Message timestamp mismatch');
-  }
-
-  const existing = await pinRepo().findOneBy({ messageId, conversationId });
-  if (existing) return existing;
-
-  const pin = pinRepo().create({
-    id: uuid(),
-    messageId,
-    conversationId,
-    pinnedBy: member.userId,
-  });
-  await pinRepo().save(pin);
-  
-  return {
-    id: pin.id,
-    messageId: pin.messageId,
-    conversationId: pin.conversationId,
-    pinnedBy: pin.pinnedBy,
-    pinnedAt: pin.pinnedAt,
-    message: {
-      id: message.id,
-      content: message.content,
-      senderId: message.senderId,
-      createdAt: toEpoch(message.createdAt),
-    }
-  };
-}
-
-export async function unpinMessage(
-  userId: string,
-  conversationId: string,
-  createdAt: number,
-  messageId: string
-) {
-  const member = await ensureMember(userId, conversationId);
-  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
-  if (!message) throw new Error('Message not found');
-
-  const pin = await pinRepo().findOneBy({ messageId, conversationId });
-  if (!pin) {
-    return { success: true, message: 'Message already unpinned' };
-  }
-
-  const isAdmin = member.role === 'OWNER' || member.role === 'ADMIN';
-  if (!isAdmin && pin.pinnedBy !== userId) {
-    throw new Error('Only pin owner or admin can unpin');
-  }
-
-  await pinRepo().delete({ id: pin.id });
-  return { success: true, message: 'Unpinned' };
-}
-
-export async function listPinnedMessages(userId: string, conversationId: string, limit: number = 20) {
-  await ensureMember(userId, conversationId);
-  const safeLimit = Math.max(1, Math.min(limit, 100));
-  const pins = await pinRepo()
-    .createQueryBuilder('p')
-    .where('p.conversation_id = :conversationId', { conversationId })
-    .orderBy('p.pinned_at', 'DESC')
-    .limit(safeLimit)
-    .getMany();
-
-  if (pins.length === 0) return [];
-  const ids = pins.map((p) => p.messageId);
-  const messages = await messageRepo()
-    .createQueryBuilder('m')
-    .where('m.id IN (:...ids)', { ids })
-    .getMany();
-  const map = new Map(messages.map((m) => [m.id, m]));
-
-  return pins.map((pin) => {
-    const msg = map.get(pin.messageId);
-    return {
-      ...pin,
-      message: msg
-        ? {
-            ...msg,
-            messageId: msg.id,
-            body: msg.content,
-            createdAt: toEpoch(msg.createdAt),
-          }
-        : null,
-    };
-  });
-}
-
-export async function getMessageReactions(userId: string, messageId: string) {
-  const msg = await messageRepo().findOneBy({ id: messageId });
-  if (!msg) throw new Error('Message not found');
-  await ensureMember(userId, msg.conversationId);
-  const reactions = await reactionRepo().findBy({ messageId });
-
-  const grouped = new Map<string, { count: number; userIds: string[] }>();
-  reactions.forEach((r) => {
-    const prev = grouped.get(r.emoji) || { count: 0, userIds: [] };
-    prev.count += 1;
-    prev.userIds.push(r.userId);
-    grouped.set(r.emoji, prev);
-  });
-
-  return Array.from(grouped.entries()).map(([emoji, data]) => ({
-    emoji,
-    count: data.count,
-    userIds: data.userIds,
-  }));
-}
-
-export async function editMessage(
-  userId: string,
-  conversationId: string,
-  createdAt: number,
-  messageId: string,
-  newContent: string
-) {
-  await ensureMember(userId, conversationId);
-  const msg = await messageRepo().findOneBy({ id: messageId, conversationId });
-  if (!msg) throw new Error('Message not found');
-  if (msg.senderId !== userId) throw new Error('You can only edit your own messages');
-
-  const trimmed = newContent.trim();
-  if (!trimmed) throw new Error('Content cannot be empty');
-
-  msg.content = trimmed;
-  msg.isEdited = true;
-  msg.editedAt = new Date();
-  await messageRepo().save(msg);
-
-  return {
-    ...msg,
-    messageId: msg.id,
-    body: msg.content,
-    createdAt: toEpoch(msg.createdAt),
-    editedAt: toEpoch(msg.editedAt),
-  };
-}
-
-export async function lookupMessageById(messageId: string) {
-  const message = await messageRepo().findOneBy({ id: messageId });
-  if (!message) return null;
-  return {
-    ...message,
-    messageId: message.id,
-    body: message.content,
-    createdAt: toEpoch(message.createdAt),
-  };
-}
-
-export async function deleteMessage(
-  userId: string,
-  conversationId: string,
-  createdAt: number,
-  messageId: string
-) {
-  await ensureMember(userId, conversationId);
-
-  const message = await messageRepo().findOneBy({
-    id: messageId,
-    conversationId,
-    createdAt: new Date(createdAt),
-  });
-
-  if (!message) {
-    throw new Error('Message not found');
-  }
-
-  if (message.senderId !== userId) {
-    throw new Error('You can only delete your own messages');
-  }
-
-  await messageRepo().delete({ id: messageId });
-  return { success: true, messageId };
-}
-</file>
-
 <file path="chat-service/tsconfig.json">
 {
   "compilerOptions": {
@@ -5927,6 +4578,25 @@ class UserSessionServiceTest {
 }
 </file>
 
+<file path="api-gateway/Dockerfile">
+# ─── Stage 1: Build ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ─── Stage 2: Runtime ───────────────────────────────────────────────────────
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
+</file>
+
 <file path="api-gateway/package.json">
 {
   "name": "api-gateway",
@@ -5994,6 +4664,1847 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
       res.status(500).json({ message: 'Gateway error', details: error?.message });
     }
   }
+}
+</file>
+
+<file path="auth-service/src/main.ts">
+import 'reflect-metadata';
+import express from 'express';
+import cors from 'cors';
+import { AppDataSource, ensureDatabase, initializeDataSource } from './db';
+import { config } from './config';
+import authRouter from './auth/auth.router';
+import userRouter from './user/user.router';
+import friendRouter from './friend/friend.router';
+
+const app = express();
+app.use(cors(), express.json());
+
+app.use('/auth', authRouter);
+app.use('/users', userRouter);
+app.use('/friends', friendRouter);
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
+
+ensureDatabase()
+  .then(() => initializeDataSource())
+  .then(() => app.listen(config.port, () => console.log(`auth-service :${config.port}`)))
+  .catch((e) => { console.error(e); process.exit(1); });
+</file>
+
+<file path="chat-service/Dockerfile">
+# ─── Stage 1: Build (cần devDependencies để compile TypeScript) ─────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ─── Stage 2: Runtime (chỉ production dependencies) ─────────────────────────
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
+EXPOSE 3003
+CMD ["node", "dist/main.js"]
+</file>
+
+<file path="chat-service/src/chat/chat.router.ts">
+import { Router, Response } from 'express';
+import { body, query } from 'express-validator';
+import { authenticate, validate, AuthReq } from '../middleware';
+import * as chatService from './chat.service';
+import conversationRouter from '../conversations/conversation.router';
+import multer from 'multer';
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+const router = Router();
+// Mount full conversation feature routes so api-gateway endpoints are served from this router too.
+router.use('/', conversationRouter);
+
+/**
+ * POST /conversations
+ * @header x-user-id string
+ * @body type string (DIRECT | GROUP)
+ * @body participantIds string[]
+ * @body title string (optional, required for GROUP)
+ */
+router.post('/',
+  authenticate,
+  [
+    body('type').isIn(['DIRECT', 'GROUP']),
+    body('participantIds').isArray({ min: 1 }),
+    body('participantIds.*').isString(),
+    body('title').optional().isString(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { type, participantIds, title } = req.body;
+      const conversation = await chatService.createConversation(
+        req.userId!,
+        type,
+        participantIds,
+        title
+      );
+      res.status(201).json(conversation);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+/**
+ * GET /conversations
+ * @header x-user-id string
+ * @query limit number (default 20, max 100)
+ * @query offset number (default 0)
+ */
+router.get('/',
+  authenticate,
+  [
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('offset').optional().isInt({ min: 0 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    const conversations = await chatService.listConversations(req.userId!, limit, offset);
+    res.json({
+      success: true,
+      data: conversations,
+      meta: {
+        total: conversations.length,
+        page: Math.floor(offset / limit) + 1,
+        limit: limit,
+        totalPages: Math.ceil(conversations.length / limit),
+        hasNext: conversations.length >= limit,
+        hasPrev: offset > 0
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+);
+
+/**
+ * GET /conversations/:conversationId/messages
+ * @header x-user-id string
+ * @param conversationId string
+ * @query limit number (default 50, max 100)
+ * @query before string (ISO date, optional)
+ */
+router.get('/:conversationId/messages',
+  authenticate,
+  [
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('before').optional().isISO8601(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const before = req.query.before as string | undefined;
+      const messages = await chatService.getConversationMessages(
+        req.userId!,
+        req.params.conversationId,
+        limit,
+        before
+      );
+      res.json({
+        success: true,
+        data: messages,
+        meta: {
+          total: messages.length,
+          page: 1,
+          limit: limit,
+          totalPages: Math.ceil(messages.length / limit),
+          hasNext: messages.length >= limit,
+          hasPrev: false
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+/**
+ * POST /conversations/:conversationId/messages
+ * @header x-user-id string
+ * @param conversationId string
+ * @body content string
+ * @body contentType string (default TEXT)
+ */
+router.post('/:conversationId/messages',
+  authenticate,
+  [
+    body('content').isString().notEmpty(),
+    body('contentType').optional().isString(),
+    body('attachments').optional().isArray(),
+    body('reply_to_id').optional({ nullable: true }).isString(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { content, contentType, attachments, reply_to_id } = req.body;
+      const message = await chatService.sendMessage(
+        req.userId!,
+        req.params.conversationId,
+        content,
+        contentType,
+        attachments || [],
+        reply_to_id || null
+      );
+      res.status(201).json(message);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+/**
+ * POST /media/upload
+ * @header x-user-id string
+ * @body file (multipart/form-data)
+ */
+router.post('/media/upload',
+  authenticate,
+  upload.single('file'),
+  (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No file uploaded'
+        });
+      }
+
+      // For now, return mock response with actual file info
+      const uploadResult = {
+        key: `upload-${Date.now()}-${req.file.originalname}`,
+        url: `http://localhost:3003/uploads/upload-${Date.now()}-${req.file.originalname}`,
+        visibility: "public",
+        thumbnailKey: null,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      };
+      
+      res.status(200).json({
+        success: true,
+        data: uploadResult,
+        message: 'File uploaded successfully'
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || 'Upload failed' 
+      });
+    }
+  }
+);
+
+export default router;
+</file>
+
+<file path="chat-service/src/conversations/conversation.router.ts">
+import { Router, Response } from 'express';
+import { body, query, param } from 'express-validator';
+import { authenticate, validate, AuthReq } from '../middleware';
+import * as conversationService from './conversation.service';
+
+const router = Router();
+
+// 1. Quản lý Conversation cơ bản
+
+// 1.1 Lấy danh sách conversations
+router.get('/',
+  authenticate,
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const result = await conversationService.listConversations(req.userId!, page, limit);
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 1.2 Lấy conversation theo ID
+router.get('/:conversationId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const conversation = await conversationService.getConversationById(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json(conversation);
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+// 1.3 Tạo conversation nhóm
+router.post('/group',
+  authenticate,
+  [
+    body('name').isString().notEmpty().isLength({ max: 255 }),
+    body('memberIds').isArray({ min: 1, max: 100 }),
+    body('memberIds.*').isUUID(),
+    body('avatarUrl').optional().isURL(),
+    body('description').optional().isString().isLength({ max: 500 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { name, memberIds, avatarUrl, description } = req.body;
+      const conversation = await conversationService.createGroupConversation(
+        req.userId!,
+        name,
+        memberIds,
+        avatarUrl,
+        description
+      );
+      res.status(201).json(conversation);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 1.4 Tạo conversation trực tiếp
+router.post('/direct',
+  authenticate,
+  [
+    body('participantId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const conversation = await conversationService.createDirectConversation(
+        req.userId!,
+        req.body.participantId
+      );
+      res.status(201).json(conversation);
+    } catch (e: any) {
+      console.error('[createDirectConversation] Error:', e);
+      res.status(400).json({ message: e.message, stack: e.stack });
+    }
+  }
+);
+
+// 1.5 Cập nhật conversation
+router.patch('/:conversationId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('name').optional().isString().isLength({ max: 255 }),
+    body('avatarUrl').optional().isURL(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { name, avatarUrl } = req.body;
+      const conversation = await conversationService.updateConversation(
+        req.userId!,
+        req.params.conversationId,
+        name,
+        avatarUrl
+      );
+      res.json(conversation);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 2. Quản lý Thành viên
+
+// 2.1 Thêm thành viên
+router.post('/:conversationId/members',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('memberIds').isArray({ min: 1, max: 50 }),
+    body('memberIds.*').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { memberIds } = req.body;
+      const result = await conversationService.addMembers(
+        req.userId!,
+        req.params.conversationId,
+        memberIds
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 2.2 Xóa thành viên
+router.delete('/:conversationId/members/:memberId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('memberId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.removeMember(
+        req.userId!,
+        req.params.conversationId,
+        req.params.memberId
+      );
+      res.json({ message: 'Member removed successfully' });
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 2.3 Rời conversation
+router.post('/:conversationId/leave',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.leaveConversation(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json({ message: 'Left conversation successfully' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 2.4 Cập nhật vai trò thành viên
+router.patch('/:conversationId/members/:memberId/role',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('memberId').isUUID(),
+    body('role').isIn(['admin', 'member']),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { role } = req.body;
+      const result = await conversationService.updateMemberRole(
+        req.userId!,
+        req.params.conversationId,
+        req.params.memberId,
+        role.toUpperCase()
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 2.5 Cập nhật cài đặt cá nhân
+router.patch('/:conversationId/settings',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('nickname').optional().isString().isLength({ max: 100 }),
+    body('isMuted').optional().isBoolean(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { nickname, isMuted } = req.body;
+      const result = await conversationService.updateUserSettings(
+        req.userId!,
+        req.params.conversationId,
+        nickname,
+        isMuted
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 3. Quản lý Lời mời nhóm
+
+// 3.1 Gửi lời mời
+router.post('/:conversationId/invites',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('userIds').isArray({ min: 1, max: 50 }),
+    body('userIds.*').isUUID(),
+    body('message').optional().isString().isLength({ max: 500 }),
+    body('expiresInHours').optional().isInt({ min: 1, max: 168 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { userIds, message, expiresInHours } = req.body;
+      const result = await conversationService.sendInvites(
+        req.userId!,
+        req.params.conversationId,
+        userIds,
+        message,
+        expiresInHours
+      );
+      res.status(201).json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 3.2 Lấy lời mời đang chờ
+router.get('/invites/pending',
+  authenticate,
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('status').optional().isIn(['pending', 'accepted', 'rejected']),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const status = req.query.status as string | undefined;
+      const result = await conversationService.getPendingInvites(
+        req.userId!,
+        page,
+        limit,
+        status?.toUpperCase()
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 3.3 Chấp nhận lời mời
+router.post('/:conversationId/invites/:inviteId/accept',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('inviteId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.acceptInvite(
+        req.userId!,
+        req.params.conversationId,
+        req.params.inviteId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 3.4 Từ chối lời mời
+router.post('/:conversationId/invites/:inviteId/reject',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('inviteId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.rejectInvite(
+        req.userId!,
+        req.params.conversationId,
+        req.params.inviteId
+      );
+      res.json({ message: 'Invite rejected' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 3.5 Hủy lời mời
+router.post('/:conversationId/invites/:inviteId/cancel',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('inviteId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.cancelInvite(
+        req.userId!,
+        req.params.conversationId,
+        req.params.inviteId
+      );
+      res.json({ message: 'Invite cancelled' });
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 4. Quản lý Poll (Bình chọn)
+
+// 4.1 Tạo poll
+router.post('/:conversationId/polls',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('question').isString().isLength({ min: 1, max: 500 }),
+    body('options').isArray({ min: 2, max: 20 }),
+    body('options.*').isString().isLength({ min: 1, max: 200 }),
+    body('allow_multiple').optional().isBoolean(),
+    body('allow_add_option').optional().isBoolean(),
+    body('is_anonymous').optional().isBoolean(),
+    body('expires_in_hours').optional().isInt({ min: 1, max: 168 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const pollData = req.body;
+      const poll = await conversationService.createPoll(
+        req.userId!,
+        req.params.conversationId,
+        pollData
+      );
+      res.status(201).json(poll);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 4.2 Lấy danh sách polls
+router.get('/:conversationId/polls',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('status').optional().isIn(['open', 'closed']),
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const status = req.query.status as string | undefined;
+      const result = await conversationService.listPolls(
+        req.userId!,
+        req.params.conversationId,
+        status?.toUpperCase(),
+        page,
+        limit
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 4.3 Chi tiết poll
+router.get('/:conversationId/polls/:pollId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const poll = await conversationService.getPollDetails(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId
+      );
+      res.json(poll);
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+// 4.4 Chỉnh sửa poll
+router.patch('/:conversationId/polls/:pollId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+    body('question').optional().isString().isLength({ min: 1, max: 500 }),
+    body('allow_multiple').optional().isBoolean(),
+    body('allow_add_option').optional().isBoolean(),
+    body('expires_at').optional().isISO8601(),
+    body('edited_option_labels').optional().isArray(),
+    body('edited_option_labels.*.id').isUUID(),
+    body('edited_option_labels.*.label').isString().isLength({ min: 1, max: 200 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const updateData = req.body;
+      const poll = await conversationService.updatePoll(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId,
+        updateData
+      );
+      res.json(poll);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 4.5 Bình chọn
+router.post('/:conversationId/polls/:pollId/vote',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+    body('option_ids').isArray({ min: 1, max: 20 }),
+    body('option_ids.*').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { option_ids } = req.body;
+      const result = await conversationService.votePoll(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId,
+        option_ids
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 4.6 Thu hồi bình chọn
+router.delete('/:conversationId/polls/:pollId/vote',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.withdrawVote(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId
+      );
+      res.json({ message: 'Vote withdrawn' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 4.7 Thêm lựa chọn
+router.post('/:conversationId/polls/:pollId/options',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+    body('label').isString().isLength({ min: 1, max: 200 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { label } = req.body;
+      const result = await conversationService.addPollOption(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId,
+        label
+      );
+      res.status(201).json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 4.8 Xóa lựa chọn
+router.delete('/:conversationId/polls/:pollId/options/:optionId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+    param('optionId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.removePollOption(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId,
+        req.params.optionId
+      );
+      res.json({ message: 'Option removed' });
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 4.9 Đóng poll
+router.post('/:conversationId/polls/:pollId/close',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('pollId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const poll = await conversationService.closePoll(
+        req.userId!,
+        req.params.conversationId,
+        req.params.pollId
+      );
+      res.json(poll);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5. Quản lý Call (Cuộc gọi)
+
+// 5.1 Lấy ICE servers
+router.get('/ice-servers',
+  authenticate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const iceServers = await conversationService.getIceServers();
+      res.json(iceServers);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+);
+
+// 5.2 Lịch sử cuộc gọi
+router.get('/:conversationId/calls',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const result = await conversationService.getCallHistory(
+        req.userId!,
+        req.params.conversationId,
+        page,
+        limit
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 5.3 Trạng thái cuộc gọi
+router.get('/:conversationId/call-state',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const callState = await conversationService.getCallState(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json(callState);
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+// 5.4 Kết thúc cuộc gọi
+router.post('/:conversationId/calls/:callId/end',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('callId').isUUID(),
+    body('reason').optional().isString().isLength({ max: 255 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { reason } = req.body;
+      const result = await conversationService.endCall(
+        req.userId!,
+        req.params.conversationId,
+        req.params.callId,
+        reason
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 6. Các chức năng khác
+
+// 6.1 Đánh dấu đã đọc
+router.post('/:conversationId/read',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.markAsRead(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json({ message: 'Conversation marked as read' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 6.2 Ghim conversation
+router.post('/:conversationId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.pinConversation(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json({ message: 'Conversation pinned' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 6.3 Bỏ ghim conversation
+router.delete('/:conversationId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.unpinConversation(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json({ message: 'Conversation unpinned' });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 6.4 Cập nhật cài đặt nhóm
+router.patch('/:conversationId/group-settings',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('permissions').optional().isObject(),
+    body('policies').optional().isObject(),
+    body('features').optional().isObject(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { permissions, policies, features } = req.body;
+      const result = await conversationService.updateGroupSettings(
+        req.userId!,
+        req.params.conversationId,
+        permissions,
+        policies,
+        features
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 6.5 Giải tán nhóm
+router.post('/:conversationId/disband',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      await conversationService.disbandGroup(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.json({ message: 'Group disbanded' });
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+export default router;
+</file>
+
+<file path="chat-service/src/messages/message.router.ts">
+import { Router, Response } from 'express';
+import { body, param, query } from 'express-validator';
+import { authenticate, AuthReq, validate } from '../middleware';
+import * as messageService from './message.service';
+
+const router = Router();
+
+router.get(
+  '/:conversationId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('cursor').optional().isString(),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const data = await messageService.listMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.cursor as string | undefined,
+        limit
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.patch(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+    body('content').isString().notEmpty(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.editMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId,
+        req.body.content
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const message = await messageService.getMessageDetail(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data: message });
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/search',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('q').optional().isString(),
+    query('senderId').optional().isUUID(),
+    query('from').optional().isInt(),
+    query('to').optional().isInt(),
+    query('fileType').optional().isIn(['images', 'video', 'files']),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.searchMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.q as string | undefined,
+        req.query.senderId as string | undefined,
+        req.query.from ? Number(req.query.from) : undefined,
+        req.query.to ? Number(req.query.to) : undefined,
+        req.query.fileType as string | undefined
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.post(
+  '/forward',
+  authenticate,
+  [
+    body('forward_id').isUUID(),
+    body('source_message_id').isUUID(),
+    body('targets').isArray({ min: 1, max: 20 }),
+    body('targets.*.message_id').optional().isUUID(),
+    body('targets.*.conversation_id').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.forwardMessage(
+        req.userId!,
+        req.body.forward_id,
+        req.body.source_message_id,
+        req.body.targets
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.post(
+  '/:conversationId/:createdAt/:messageId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.pinMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.delete(
+  '/:conversationId/:createdAt/:messageId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.unpinMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/pins',
+  authenticate,
+  [param('conversationId').isUUID(), query('limit').optional().isInt({ min: 1, max: 100 })],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.listPinnedMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.limit ? Number(req.query.limit) : 20
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:messageId/reactions',
+  authenticate,
+  [param('messageId').isUUID()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.getMessageReactions(req.userId!, req.params.messageId);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/v1/messages/lookup/:messageId',
+  [param('messageId').isUUID()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.lookupMessageById(req.params.messageId);
+      if (!data) {
+        res.status(404).json({ message: 'Message not found' });
+        return;
+      }
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.delete(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.deleteMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+export default router;
+</file>
+
+<file path="chat-service/src/messages/message.service.ts">
+import { v4 as uuid } from 'uuid';
+import {
+  AppDataSource,
+  ConversationMember,
+  Message,
+  MessageForward,
+  MessagePin,
+  MessageReaction,
+  User,
+} from '../db';
+
+const memberRepo = () => AppDataSource.getRepository(ConversationMember);
+const messageRepo = () => AppDataSource.getRepository(Message);
+const pinRepo = () => AppDataSource.getRepository(MessagePin);
+const reactionRepo = () => AppDataSource.getRepository(MessageReaction);
+const forwardRepo = () => AppDataSource.getRepository(MessageForward);
+
+async function ensureMember(userId: string, conversationId: string) {
+  const member = await memberRepo().findOneBy({ userId, conversationId });
+  if (!member) {
+    throw new Error('You are not a member of this conversation');
+  }
+  return member;
+}
+
+function toEpoch(value: Date | string | number) {
+  return new Date(value).getTime();
+}
+
+export async function listMessages(
+  userId: string,
+  conversationId: string,
+  cursor?: string,
+  limit: number = 50
+) {
+  await ensureMember(userId, conversationId);
+
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const qb = messageRepo()
+    .createQueryBuilder('m')
+    .where('m.conversation_id = :conversationId', { conversationId })
+    .orderBy('m.created_at', 'DESC')
+    .addOrderBy('m.id', 'DESC')
+    .limit(safeLimit + 1);
+
+  if (cursor) {
+    qb.andWhere('m.created_at < :cursorDate', { cursorDate: new Date(cursor) });
+  }
+
+  const rows = await qb.getMany();
+  const hasMore = rows.length > safeLimit;
+  const items = hasMore ? rows.slice(0, safeLimit) : rows;
+
+  // Collect all replyToIds to batch-fetch replied messages
+  const replyToIds = [...new Set(items.map(m => m.replyToId).filter(Boolean))] as string[];
+  const repliedMessagesMap = new Map<string, any>();
+
+  console.log(`[listMessages] ${items.length} messages, ${replyToIds.length} have replyToId`);
+
+  if (replyToIds.length > 0) {
+    const repliedMsgs = await messageRepo()
+      .createQueryBuilder('r')
+      .where('r.id IN (:...ids)', { ids: replyToIds })
+      .getMany();
+
+    console.log(`[listMessages] fetched ${repliedMsgs.length} replied messages`);
+
+    // Batch-fetch senders of replied messages
+    const senderIds = [...new Set(repliedMsgs.map(r => r.senderId))];
+    let senderMap = new Map<string, string>();
+
+    if (senderIds.length > 0) {
+      try {
+        const userRepo = AppDataSource.getRepository(User);
+        const senders = await userRepo
+          .createQueryBuilder('u')
+          .select(['u.id', 'u.displayName'])
+          .where('u.id IN (:...ids)', { ids: senderIds })
+          .getMany();
+        senderMap = new Map(senders.map(u => [u.id, u.displayName]));
+        console.log(`[listMessages] fetched ${senders.length} sender names`);
+      } catch (err) {
+        console.warn('[listMessages] senderName lookup failed:', err);
+      }
+    }
+
+    for (const r of repliedMsgs) {
+      repliedMessagesMap.set(r.id, {
+        messageId: r.id,
+        senderId: r.senderId,
+        senderName: senderMap.get(r.senderId) || 'Người dùng',
+        body: r.content,
+        attachments: Array.isArray(r.attachments) ? r.attachments : [],
+        isDeleted: false,
+      });
+    }
+  }
+
+  const normalized = items
+    .reverse()
+    .map((msg) => ({
+      ...msg,
+      messageId: msg.id,
+      body: msg.content,
+      createdAt: toEpoch(msg.createdAt),
+      isDeleted: false,
+      replyToMessageId: msg.replyToId || null,
+      replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
+    }));
+
+  const nextCursor =
+    hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+
+  return {
+    items: normalized,
+    nextCursor,
+    hasMore,
+  };
+}
+
+export async function getMessageDetail(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string
+) {
+  await ensureMember(userId, conversationId);
+
+  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
+  if (!message) throw new Error('Message not found');
+
+  if (Math.abs(toEpoch(message.createdAt) - createdAt) > 60000) {
+    throw new Error('Message timestamp mismatch');
+  }
+
+  return {
+    ...message,
+    messageId: message.id,
+    body: message.content,
+    createdAt: toEpoch(message.createdAt),
+    isDeleted: false,
+    replyToMessageId: message.replyToId || null,
+  };
+}
+
+export async function searchMessages(
+  userId: string,
+  conversationId: string,
+  query?: string,
+  senderId?: string,
+  from?: number,
+  to?: number,
+  fileType?: string
+) {
+  await ensureMember(userId, conversationId);
+
+  const qb = messageRepo()
+    .createQueryBuilder('m')
+    .where('m.conversation_id = :conversationId', { conversationId })
+    .orderBy('m.created_at', 'DESC')
+    .addOrderBy('m.id', 'DESC')
+    .limit(100);
+
+  if (query) {
+    qb.andWhere('m.content LIKE :q', { q: `%${query}%` });
+  }
+
+  if (senderId) {
+    qb.andWhere('m.sender_id = :senderId', { senderId });
+  }
+
+  if (from) {
+    qb.andWhere('m.created_at >= :fromDate', { fromDate: new Date(from) });
+  }
+
+  if (to) {
+    qb.andWhere('m.created_at <= :toDate', { toDate: new Date(to) });
+  }
+
+  const rows = await qb.getMany();
+  const filtered = fileType
+    ? rows.filter((row) => {
+        const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+        if (fileType === 'images') {
+          return attachments.some((a: any) => String(a?.contentType || '').startsWith('image/'));
+        }
+        if (fileType === 'video') {
+          return attachments.some((a: any) => String(a?.contentType || '').startsWith('video/'));
+        }
+        if (fileType === 'files') {
+          return attachments.some((a: any) => !String(a?.contentType || '').startsWith('image/') && !String(a?.contentType || '').startsWith('video/'));
+        }
+        return true;
+      })
+    : rows;
+
+  return filtered.map((msg) => ({
+    ...msg,
+    messageId: msg.id,
+    body: msg.content,
+    createdAt: toEpoch(msg.createdAt),
+    isDeleted: false,
+    replyToMessageId: msg.replyToId || null,
+  }));
+}
+
+export async function forwardMessage(
+  userId: string,
+  forwardId: string,
+  sourceMessageId: string,
+  targets: Array<{ message_id: string; conversation_id: string }>
+) {
+  if (!forwardId) throw new Error('forward_id is required');
+  if (!sourceMessageId) throw new Error('source_message_id is required');
+  if (!Array.isArray(targets) || targets.length === 0) {
+    throw new Error('targets is required');
+  }
+  if (targets.length > 20) throw new Error('Maximum 20 targets');
+
+  const existing = await forwardRepo().findOneBy({ forwardId, senderId: userId });
+  if (existing) {
+    return {
+      message: 'Forward already processed',
+      forwardId,
+      duplicated: true,
+      targets: existing.targets,
+    };
+  }
+
+  const source = await messageRepo().findOneBy({ id: sourceMessageId });
+  if (!source) throw new Error('Source message not found');
+  await ensureMember(userId, source.conversationId);
+
+  const uniqueTargets = Array.from(
+    new Map(targets.map((t) => [t.conversation_id, t])).values()
+  );
+
+  for (const target of uniqueTargets) {
+    await ensureMember(userId, target.conversation_id);
+  }
+
+  const inserts = uniqueTargets.map((target) =>
+    messageRepo().create({
+      id: target.message_id || uuid(),
+      conversationId: target.conversation_id,
+      senderId: userId,
+      contentType: source.contentType,
+      content: source.content,
+      attachments: source.attachments || [],
+      replyToId: undefined,
+      isEdited: false,
+    })
+  );
+
+  await messageRepo().save(inserts);
+
+  await forwardRepo().save(
+    forwardRepo().create({
+      id: uuid(),
+      forwardId,
+      senderId: userId,
+      sourceMessageId,
+      targets: uniqueTargets,
+    })
+  );
+
+  return {
+    message: 'Forward success',
+    forwardId,
+    duplicated: false,
+    count: inserts.length,
+  };
+}
+
+export async function pinMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string
+) {
+  const member = await ensureMember(userId, conversationId);
+  const message = await messageRepo().findOneBy({ id: messageId, conversationId });
+  if (!message) throw new Error('Message not found');
+  if (Math.abs(toEpoch(message.createdAt) - createdAt) > 60000) {
+    throw new Error('Message timestamp mismatch');
+  }
+
+  const existing = await pinRepo().findOneBy({ messageId, conversationId });
+  if (existing) return existing;
+
+  const pin = pinRepo().create({
+    id: uuid(),
+    messageId,
+    conversationId,
+    pinnedBy: member.userId,
+  });
+  await pinRepo().save(pin);
+  
+  return {
+    id: pin.id,
+    messageId: pin.messageId,
+    conversationId: pin.conversationId,
+    pinnedBy: pin.pinnedBy,
+    pinnedAt: pin.pinnedAt,
+    message: {
+      id: message.id,
+      content: message.content,
+      senderId: message.senderId,
+      createdAt: toEpoch(message.createdAt),
+    }
+  };
+}
+
+export async function unpinMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string
+) {
+  const member = await ensureMember(userId, conversationId);
+
+  const pin = await pinRepo().findOneBy({ messageId, conversationId });
+  if (!pin) {
+    return { success: true, message: 'Message already unpinned' };
+  }
+
+  const isAdmin = member.role === 'OWNER' || member.role === 'ADMIN';
+  if (!isAdmin && pin.pinnedBy !== userId) {
+    throw new Error('Only pin owner or admin can unpin');
+  }
+
+  await pinRepo().delete({ id: pin.id });
+  return { success: true, message: 'Unpinned' };
+}
+
+export async function listPinnedMessages(userId: string, conversationId: string, limit: number = 20) {
+  await ensureMember(userId, conversationId);
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const pins = await pinRepo()
+    .createQueryBuilder('p')
+    .where('p.conversation_id = :conversationId', { conversationId })
+    .orderBy('p.pinned_at', 'DESC')
+    .limit(safeLimit)
+    .getMany();
+
+  if (pins.length === 0) return [];
+  const ids = pins.map((p) => p.messageId);
+  const messages = await messageRepo()
+    .createQueryBuilder('m')
+    .where('m.id IN (:...ids)', { ids })
+    .getMany();
+  const map = new Map(messages.map((m) => [m.id, m]));
+
+  return pins.map((pin) => {
+    const msg = map.get(pin.messageId);
+    return {
+      ...pin,
+      message: msg
+        ? {
+            ...msg,
+            messageId: msg.id,
+            body: msg.content,
+            createdAt: toEpoch(msg.createdAt),
+          }
+        : null,
+    };
+  });
+}
+
+export async function getMessageReactions(userId: string, messageId: string) {
+  const msg = await messageRepo().findOneBy({ id: messageId });
+  if (!msg) throw new Error('Message not found');
+  await ensureMember(userId, msg.conversationId);
+  const reactions = await reactionRepo().findBy({ messageId });
+
+  const grouped = new Map<string, { count: number; userIds: string[] }>();
+  reactions.forEach((r) => {
+    const prev = grouped.get(r.emoji) || { count: 0, userIds: [] };
+    prev.count += 1;
+    prev.userIds.push(r.userId);
+    grouped.set(r.emoji, prev);
+  });
+
+  return Array.from(grouped.entries()).map(([emoji, data]) => ({
+    emoji,
+    count: data.count,
+    userIds: data.userIds,
+  }));
+}
+
+export async function editMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string,
+  newContent: string
+) {
+  await ensureMember(userId, conversationId);
+  const msg = await messageRepo().findOneBy({ id: messageId, conversationId });
+  if (!msg) throw new Error('Message not found');
+  if (msg.senderId !== userId) throw new Error('You can only edit your own messages');
+
+  const trimmed = newContent.trim();
+  if (!trimmed) throw new Error('Content cannot be empty');
+
+  msg.content = trimmed;
+  msg.isEdited = true;
+  msg.editedAt = new Date();
+  await messageRepo().save(msg);
+
+  return {
+    ...msg,
+    messageId: msg.id,
+    body: msg.content,
+    createdAt: toEpoch(msg.createdAt),
+    editedAt: toEpoch(msg.editedAt),
+  };
+}
+
+export async function lookupMessageById(messageId: string) {
+  const message = await messageRepo().findOneBy({ id: messageId });
+  if (!message) return null;
+  return {
+    ...message,
+    messageId: message.id,
+    body: message.content,
+    createdAt: toEpoch(message.createdAt),
+  };
+}
+
+export async function deleteMessage(
+  userId: string,
+  conversationId: string,
+  createdAt: number,
+  messageId: string
+) {
+  await ensureMember(userId, conversationId);
+
+  const message = await messageRepo().findOneBy({
+    id: messageId,
+    conversationId,
+    createdAt: new Date(createdAt),
+  });
+
+  if (!message) {
+    throw new Error('Message not found');
+  }
+
+  if (message.senderId !== userId) {
+    throw new Error('You can only delete your own messages');
+  }
+
+  await messageRepo().delete({ id: messageId });
+  
+  await pinRepo().delete({ messageId, conversationId });
+  
+  return { success: true, messageId };
+}
+</file>
+
+<file path="realtime-service/src/main/java/chatapp/realtimeservice/service/MessageBroadcastService.java">
+package chatapp.realtimeservice.service;
+
+import chatapp.realtimeservice.dto.ApiResponse;
+import chatapp.realtimeservice.dto.MessageNotificationRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MessageBroadcastService {
+    private static final Logger logger = LoggerFactory.getLogger(MessageBroadcastService.class);
+
+    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final PresenceRepository presenceRepository;
+
+    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate,
+                                   PresenceRepository presenceRepository) {
+        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.presenceRepository = presenceRepository;
+    }
+
+    public ApiResponse<Void> notifyMessageReceived(MessageNotificationRequest notification) {
+        if (notification.receiverId() == null || notification.receiverId().isBlank()) {
+            logger.warn("Receiver ID is empty for message: {}", notification.messageId());
+            return ApiResponse.error("Receiver ID cannot be empty");
+        }
+
+        if (!isUserOnline(notification.receiverId())) {
+            logger.debug("User {} is not online, message {} will be delivered when user comes online", 
+                    notification.receiverId(), notification.messageId());
+        }
+
+        try {
+            simpMessagingTemplate.convertAndSendToUser(
+                    notification.receiverId(),
+                    "/queue/messages",
+                    notification
+            );
+            logger.info("Message {} sent to user {} via WebSocket", notification.messageId(), notification.receiverId());
+            return ApiResponse.ok(null, "Message notification sent successfully");
+        } catch (Exception ex) {
+            logger.error("Failed to send message notification to user {}: {}", 
+                    notification.receiverId(), ex.getMessage(), ex);
+            return ApiResponse.error("Failed to send message notification: " + ex.getMessage());
+        }
+    }
+
+    public void notifyPresenceChange(String userId, boolean online) {
+        String event = online ? "USER_ONLINE" : "USER_OFFLINE";
+        try {
+            simpMessagingTemplate.convertAndSend("/topic/presence-updates", 
+                    new PresenceUpdate(userId, event));
+            logger.info("Broadcast presence event: {} for user {}", event, userId);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast presence change for user {}: {}", userId, ex.getMessage());
+        }
+    }
+
+    private boolean isUserOnline(String userId) {
+        return presenceRepository.isUserOnline(userId);
+    }
+
+    public record PresenceUpdate(String userId, String event) {
+    }
 }
 </file>
 
@@ -6194,556 +6705,6 @@ export async function logout(userId: string, refreshToken?: string) {
   if (refreshToken) await tokenRepo().delete({ token: refreshToken });
   else await tokenRepo().delete({ userId });
 }
-</file>
-
-<file path="auth-service/src/main.ts">
-import 'reflect-metadata';
-import express from 'express';
-import cors from 'cors';
-import { AppDataSource, ensureDatabase, initializeDataSource } from './db';
-import { config } from './config';
-import authRouter from './auth/auth.router';
-import userRouter from './user/user.router';
-import friendRouter from './friend/friend.router';
-
-const app = express();
-app.use(cors(), express.json());
-
-app.use('/auth', authRouter);
-app.use('/users', userRouter);
-app.use('/friends', friendRouter);
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
-
-ensureDatabase()
-  .then(() => initializeDataSource())
-  .then(() => app.listen(config.port, () => console.log(`auth-service :${config.port}`)))
-  .catch((e) => { console.error(e); process.exit(1); });
-</file>
-
-<file path="chat-service/Dockerfile">
-# ─── Stage 1: Build (cần devDependencies để compile TypeScript) ─────────────
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-# ─── Stage 2: Runtime (chỉ production dependencies) ─────────────────────────
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY --from=builder /app/dist ./dist
-EXPOSE 3003
-CMD ["node", "dist/main.js"]
-</file>
-
-<file path="chat-service/src/chat/chat.router.ts">
-import { Router, Response } from 'express';
-import { body, query } from 'express-validator';
-import { authenticate, validate, AuthReq } from '../middleware';
-import * as chatService from './chat.service';
-import conversationRouter from '../conversations/conversation.router';
-import multer from 'multer';
-
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-});
-
-const router = Router();
-// Mount full conversation feature routes so api-gateway endpoints are served from this router too.
-router.use('/', conversationRouter);
-
-/**
- * POST /conversations
- * @header x-user-id string
- * @body type string (DIRECT | GROUP)
- * @body participantIds string[]
- * @body title string (optional, required for GROUP)
- */
-router.post('/',
-  authenticate,
-  [
-    body('type').isIn(['DIRECT', 'GROUP']),
-    body('participantIds').isArray({ min: 1 }),
-    body('participantIds.*').isString(),
-    body('title').optional().isString(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { type, participantIds, title } = req.body;
-      const conversation = await chatService.createConversation(
-        req.userId!,
-        type,
-        participantIds,
-        title
-      );
-      res.status(201).json(conversation);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-/**
- * GET /conversations
- * @header x-user-id string
- * @query limit number (default 20, max 100)
- * @query offset number (default 0)
- */
-router.get('/',
-  authenticate,
-  [
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-    query('offset').optional().isInt({ min: 0 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    const limit = req.query.limit ? Number(req.query.limit) : 20;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const conversations = await chatService.listConversations(req.userId!, limit, offset);
-    res.json({
-      success: true,
-      data: conversations,
-      meta: {
-        total: conversations.length,
-        page: Math.floor(offset / limit) + 1,
-        limit: limit,
-        totalPages: Math.ceil(conversations.length / limit),
-        hasNext: conversations.length >= limit,
-        hasPrev: offset > 0
-      },
-      timestamp: new Date().toISOString()
-    });
-  }
-);
-
-/**
- * GET /conversations/:conversationId/messages
- * @header x-user-id string
- * @param conversationId string
- * @query limit number (default 50, max 100)
- * @query before string (ISO date, optional)
- */
-router.get('/:conversationId/messages',
-  authenticate,
-  [
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-    query('before').optional().isISO8601(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const limit = req.query.limit ? Number(req.query.limit) : 50;
-      const before = req.query.before as string | undefined;
-      const messages = await chatService.getConversationMessages(
-        req.userId!,
-        req.params.conversationId,
-        limit,
-        before
-      );
-      res.json({
-        success: true,
-        data: messages,
-        meta: {
-          total: messages.length,
-          page: 1,
-          limit: limit,
-          totalPages: Math.ceil(messages.length / limit),
-          hasNext: messages.length >= limit,
-          hasPrev: false
-        },
-        timestamp: new Date().toISOString()
-      });
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-/**
- * POST /conversations/:conversationId/messages
- * @header x-user-id string
- * @param conversationId string
- * @body content string
- * @body contentType string (default TEXT)
- */
-router.post('/:conversationId/messages',
-  authenticate,
-  [
-    body('content').isString().notEmpty(),
-    body('contentType').optional().isString(),
-    body('attachments').optional().isArray(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const { content, contentType, attachments } = req.body;
-      const message = await chatService.sendMessage(
-        req.userId!,
-        req.params.conversationId,
-        content,
-        contentType,
-        attachments || []
-      );
-      res.status(201).json(message);
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-/**
- * POST /media/upload
- * @header x-user-id string
- * @body file (multipart/form-data)
- */
-router.post('/media/upload',
-  authenticate,
-  upload.single('file'),
-  (req, res, next) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: 'No file uploaded'
-        });
-      }
-
-      // For now, return mock response with actual file info
-      const uploadResult = {
-        key: `upload-${Date.now()}-${req.file.originalname}`,
-        url: `http://localhost:3003/uploads/upload-${Date.now()}-${req.file.originalname}`,
-        visibility: "public",
-        thumbnailKey: null,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-      };
-      
-      res.status(200).json({
-        success: true,
-        data: uploadResult,
-        message: 'File uploaded successfully'
-      });
-    } catch (error: any) {
-      res.status(500).json({ 
-        success: false, 
-        message: error.message || 'Upload failed' 
-      });
-    }
-  }
-);
-
-export default router;
-</file>
-
-<file path="realtime-service/src/main/java/chatapp/realtimeservice/service/MessageBroadcastService.java">
-package chatapp.realtimeservice.service;
-
-import chatapp.realtimeservice.dto.ApiResponse;
-import chatapp.realtimeservice.dto.MessageNotificationRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Service;
-
-@Service
-public class MessageBroadcastService {
-    private static final Logger logger = LoggerFactory.getLogger(MessageBroadcastService.class);
-
-    private final SimpMessagingTemplate simpMessagingTemplate;
-    private final PresenceRepository presenceRepository;
-
-    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate,
-                                   PresenceRepository presenceRepository) {
-        this.simpMessagingTemplate = simpMessagingTemplate;
-        this.presenceRepository = presenceRepository;
-    }
-
-    public ApiResponse<Void> notifyMessageReceived(MessageNotificationRequest notification) {
-        if (notification.receiverId() == null || notification.receiverId().isBlank()) {
-            logger.warn("Receiver ID is empty for message: {}", notification.messageId());
-            return ApiResponse.error("Receiver ID cannot be empty");
-        }
-
-        if (!isUserOnline(notification.receiverId())) {
-            logger.debug("User {} is not online, message {} will be delivered when user comes online", 
-                    notification.receiverId(), notification.messageId());
-        }
-
-        try {
-            simpMessagingTemplate.convertAndSendToUser(
-                    notification.receiverId(),
-                    "/queue/messages",
-                    notification
-            );
-            logger.info("Message {} sent to user {} via WebSocket", notification.messageId(), notification.receiverId());
-            return ApiResponse.ok(null, "Message notification sent successfully");
-        } catch (Exception ex) {
-            logger.error("Failed to send message notification to user {}: {}", 
-                    notification.receiverId(), ex.getMessage(), ex);
-            return ApiResponse.error("Failed to send message notification: " + ex.getMessage());
-        }
-    }
-
-    public void notifyPresenceChange(String userId, boolean online) {
-        String event = online ? "USER_ONLINE" : "USER_OFFLINE";
-        try {
-            simpMessagingTemplate.convertAndSend("/topic/presence-updates", 
-                    new PresenceUpdate(userId, event));
-            logger.info("Broadcast presence event: {} for user {}", event, userId);
-        } catch (Exception ex) {
-            logger.warn("Failed to broadcast presence change for user {}: {}", userId, ex.getMessage());
-        }
-    }
-
-    private boolean isUserOnline(String userId) {
-        return presenceRepository.isUserOnline(userId);
-    }
-
-    public record PresenceUpdate(String userId, String event) {
-    }
-}
-</file>
-
-<file path="api-gateway/src/main.ts">
-import express from 'express';
-import { createServer } from 'http';
-import cors from 'cors';
-import { config } from './config';
-import { authenticate } from './middleware';
-import { proxy } from './proxy';
-import multer from 'multer';
-import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
-
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-});
-
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
-// Auth routes (public)
-app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
-app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
-app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
-app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
-app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
-
-// User routes (protected)
-app.get('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
-app.put('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
-app.get('/api/users/search', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/search`));
-app.get('/api/users/:id', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/${req.params.id}`));
-
-// 1. Quản lý Conversation cơ bản
-
-// 1.1 Lấy danh sách conversations
-app.get('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
-
-// 1.2 Lấy conversation theo ID
-app.get('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
-
-// 1.3 Tạo conversation nhóm
-app.post('/api/conversations/group', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/group`, true));
-
-// 1.4 Tạo conversation trực tiếp
-app.post('/api/conversations/direct', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/direct`, true));
-
-// 1.5 Cập nhật conversation
-app.patch('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
-
-// Keep old routes for backward compatibility
-app.post('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
-
-// 2. Quản lý Thành viên
-
-// 2.1 Thêm thành viên
-app.post('/api/conversations/:conversationId/members', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members`, true));
-
-// 2.2 Xóa thành viên
-app.delete('/api/conversations/:conversationId/members/:memberId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}`, true));
-
-// 2.3 Rời conversation
-app.post('/api/conversations/:conversationId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/leave`, true));
-
-// 2.4 Cập nhật vai trò thành viên
-app.patch('/api/conversations/:conversationId/members/:memberId/role', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}/role`, true));
-
-// 2.5 Cập nhật cài đặt cá nhân
-app.patch('/api/conversations/:conversationId/settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/settings`, true));
-
-// 3. Quản lý Lời mời nhóm
-
-// 3.1 Gửi lời mời
-app.post('/api/conversations/:conversationId/invites', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites`, true));
-
-// 3.2 Lấy lời mời đang chờ
-app.get('/api/conversations/invites/pending', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/invites/pending`, true));
-
-// 3.3 Chấp nhận lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/accept', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/accept`, true));
-
-// 3.4 Từ chối lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/reject', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/reject`, true));
-
-// 3.5 Hủy lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/cancel', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/cancel`, true));
-
-// 4. Quản lý Poll (Bình chọn)
-
-// 4.1 Tạo poll
-app.post('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
-
-// 4.2 Lấy danh sách polls
-app.get('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
-
-// 4.3 Chi tiết poll
-app.get('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
-
-// 4.4 Chỉnh sửa poll
-app.patch('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
-
-// 4.5 Bình chọn
-app.post('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
-
-// 4.6 Thu hồi bình chọn
-app.delete('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
-
-// 4.7 Thêm lựa chọn
-app.post('/api/conversations/:conversationId/polls/:pollId/options', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options`, true));
-
-// 4.8 Xóa lựa chọn
-app.delete('/api/conversations/:conversationId/polls/:pollId/options/:optionId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options/${req.params.optionId}`, true));
-
-// 4.9 Đóng poll
-app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/close`, true));
-
-// 5. Quản lý Call (Cuộc gọi)
-
-// 5.1 Lấy ICE servers
-app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
-
-// 5.2 Lịch sử cuộc gọi
-app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
-
-// 5.3 Trạng thái cuộc gọi
-app.get('/api/conversations/:conversationId/call-state', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/call-state`, true));
-
-// 5.4 Kết thúc cuộc gọi
-app.post('/api/conversations/:conversationId/calls/:callId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/end`, true));
-
-// 6. Các chức năng khác
-
-// 6.1 Đánh dấu đã đọc
-app.post('/api/conversations/:conversationId/read', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/read`, true));
-
-// 6.2 Ghim conversation
-app.post('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
-
-// 6.3 Bỏ ghim conversation
-app.delete('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
-
-// 6.4 Cập nhật cài đặt nhóm
-app.patch('/api/conversations/:conversationId/group-settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-settings`, true));
-
-// 6.5 Giải tán nhóm
-app.post('/api/conversations/:conversationId/disband', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/disband`, true));
-
-// Message routes (backward compatibility)
-app.get('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
-app.post('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
-
-// 7. Message management routes
-app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
-app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
-app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
-app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
-app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
-app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/pins`, true));
-app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
-app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
-
-// Friend routes (protected)
-app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
-app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
-app.get('/api/friends/requests/sent', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/sent`));
-app.post('/api/friends/requests', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests`));
-app.put('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
-app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
-app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
-app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
-app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
-
-// Media upload routes (protected)
-app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
-
-// Internal callback for chat-service to push real-time notifications
-app.post('/api/internal/message-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, message } = req.body;
-  if (conversationId && message) {
-    notifyConversation(conversationId, message);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for new conversation created
-app.post('/api/internal/conversation-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversation } = req.body;
-  if (conversation) {
-    notifyNewConversation(conversation);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for message read event
-app.post('/api/internal/message-read-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, userId, messageId } = req.body;
-  if (conversationId && userId && messageId) {
-    notifyMessageRead(conversationId, userId, messageId);
-  }
-  res.json({ ok: true });
-});
-
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
-app.get('/api/presence/online', authenticate, (_, res) => {
-  res.json({ success: true, data: getOnlineUserIds() });
-});
-
-const httpServer = createServer(app);
-setupSocketIO(httpServer);
-
-httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
 </file>
 
 <file path="auth-service/src/db.ts">
@@ -7069,6 +7030,7 @@ export class Conversation {
   @Column('varchar', { length: 36, name: 'created_by' }) createdBy!: string;
   @Column('varchar', { length: 255, nullable: true, name: 'direct_key' }) directKey?: string;
   @Column('varchar', { length: 500, nullable: true, name: 'avatar_url' }) avatarUrl?: string;
+  @Column('varchar', { length: 500, nullable: true }) description?: string;
   @Column('varchar', { length: 36, nullable: true, name: 'last_message_id' }) lastMessageId?: string;
   @Column('text', { nullable: true, name: 'last_message_preview' }) lastMessagePreview?: string;
   @Column('datetime', { nullable: true, name: 'last_message_at' }) lastMessageAt?: Date;
@@ -7312,7 +7274,8 @@ entities: [
     ConversationCall,
     ConversationSettings,
     UserPinnedConversation,
-    MessageRead
+    MessageRead,
+    User,
   ],
   connectorPackage: 'mysql2',
 });
@@ -7328,6 +7291,239 @@ export async function ensureDatabase() {
   await conn.execute(`CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   await conn.end();
 }
+</file>
+
+<file path="api-gateway/src/main.ts">
+import express from 'express';
+import { createServer } from 'http';
+import cors from 'cors';
+import { config } from './config';
+import { authenticate } from './middleware';
+import { proxy } from './proxy';
+import multer from 'multer';
+import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+
+// Auth routes (public)
+app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
+app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
+app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
+app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
+app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
+
+// User routes (protected)
+app.get('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
+app.put('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
+app.get('/api/users/search', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/search`));
+app.get('/api/users/:id', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/${req.params.id}`));
+
+// 1. Quản lý Conversation cơ bản
+
+// 1.1 Lấy danh sách conversations
+app.get('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
+
+// 1.2 Lấy conversation theo ID
+app.get('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
+
+// 1.3 Tạo conversation nhóm
+app.post('/api/conversations/group', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/group`, true));
+
+// 1.4 Tạo conversation trực tiếp
+app.post('/api/conversations/direct', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/direct`, true));
+
+// 1.5 Cập nhật conversation
+app.patch('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
+
+// Keep old routes for backward compatibility
+app.post('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
+
+// 2. Quản lý Thành viên
+
+// 2.1 Thêm thành viên
+app.post('/api/conversations/:conversationId/members', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members`, true));
+
+// 2.2 Xóa thành viên
+app.delete('/api/conversations/:conversationId/members/:memberId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}`, true));
+
+// 2.3 Rời conversation
+app.post('/api/conversations/:conversationId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/leave`, true));
+
+// 2.4 Cập nhật vai trò thành viên
+app.patch('/api/conversations/:conversationId/members/:memberId/role', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}/role`, true));
+
+// 2.5 Cập nhật cài đặt cá nhân
+app.patch('/api/conversations/:conversationId/settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/settings`, true));
+
+// 3. Quản lý Lời mời nhóm
+
+// 3.1 Gửi lời mời
+app.post('/api/conversations/:conversationId/invites', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites`, true));
+
+// 3.2 Lấy lời mời đang chờ
+app.get('/api/conversations/invites/pending', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/invites/pending`, true));
+
+// 3.3 Chấp nhận lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/accept', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/accept`, true));
+
+// 3.4 Từ chối lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/reject', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/reject`, true));
+
+// 3.5 Hủy lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/cancel', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/cancel`, true));
+
+// 4. Quản lý Poll (Bình chọn)
+
+// 4.1 Tạo poll
+app.post('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
+
+// 4.2 Lấy danh sách polls
+app.get('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
+
+// 4.3 Chi tiết poll
+app.get('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
+
+// 4.4 Chỉnh sửa poll
+app.patch('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
+
+// 4.5 Bình chọn
+app.post('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
+
+// 4.6 Thu hồi bình chọn
+app.delete('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
+
+// 4.7 Thêm lựa chọn
+app.post('/api/conversations/:conversationId/polls/:pollId/options', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options`, true));
+
+// 4.8 Xóa lựa chọn
+app.delete('/api/conversations/:conversationId/polls/:pollId/options/:optionId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options/${req.params.optionId}`, true));
+
+// 4.9 Đóng poll
+app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/close`, true));
+
+// 5. Quản lý Call (Cuộc gọi)
+
+// 5.1 Lấy ICE servers
+app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
+
+// 5.2 Lịch sử cuộc gọi
+app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
+
+// 5.3 Trạng thái cuộc gọi
+app.get('/api/conversations/:conversationId/call-state', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/call-state`, true));
+
+// 5.4 Kết thúc cuộc gọi
+app.post('/api/conversations/:conversationId/calls/:callId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/end`, true));
+
+// 6. Các chức năng khác
+
+// 6.1 Đánh dấu đã đọc
+app.post('/api/conversations/:conversationId/read', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/read`, true));
+
+// 6.2 Ghim conversation
+app.post('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
+
+// 6.3 Bỏ ghim conversation
+app.delete('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
+
+// 6.4 Cập nhật cài đặt nhóm
+app.patch('/api/conversations/:conversationId/group-settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-settings`, true));
+
+// 6.5 Giải tán nhóm
+app.post('/api/conversations/:conversationId/disband', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/disband`, true));
+
+// Message routes (backward compatibility)
+app.get('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
+app.post('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
+
+// 7. Message management routes
+app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
+app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
+app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
+app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
+app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
+app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/pins`, true));
+app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
+app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
+
+// Friend routes (protected)
+app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
+app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
+app.get('/api/friends/requests/sent', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/sent`));
+app.post('/api/friends/requests', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests`));
+app.put('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
+app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+
+// Media upload routes (protected)
+app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
+
+// Internal callback for chat-service to push real-time notifications
+app.post('/api/internal/message-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversationId, message } = req.body;
+  if (conversationId && message) {
+    notifyConversation(conversationId, message);
+  }
+  res.json({ ok: true });
+});
+
+// Internal callback for new conversation created
+app.post('/api/internal/conversation-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversation } = req.body;
+  if (conversation) {
+    notifyNewConversation(conversation);
+  }
+  res.json({ ok: true });
+});
+
+// Internal callback for message read event
+app.post('/api/internal/message-read-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { conversationId, userId, messageId } = req.body;
+  if (conversationId && userId && messageId) {
+    notifyMessageRead(conversationId, userId, messageId);
+  }
+  res.json({ ok: true });
+});
+
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/api/presence/online', authenticate, (_, res) => {
+  res.json({ success: true, data: getOnlineUserIds() });
+});
+
+const httpServer = createServer(app);
+setupSocketIO(httpServer);
+
+httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
 </file>
 
 <file path="chat-service/package.json">
@@ -7361,9 +7557,175 @@ export async function ensureDatabase() {
     "@types/node": "^20.12.7",
     "@types/uuid": "^9.0.8",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.9.3"
   }
 }
+</file>
+
+<file path="chat-service/src/main.ts">
+import 'reflect-metadata';
+import express from 'express';
+import cors from 'cors';
+import { AppDataSource, ensureDatabase } from './db';
+import { config } from './config';
+import { connectRabbitMQ, closeRabbitMQ, getRabbitMQStatus } from './rabbitmq';
+import { connectRedis, closeRedis, getRedisStatus } from './redis';
+import chatRouter from './chat/chat.router';
+import messageRouter from './messages/message.router';
+
+const app = express();
+app.use(cors(), express.json());
+
+app.use('/conversations', chatRouter);
+// Keep old /chat prefix for backward compatibility
+app.use('/chat', chatRouter);
+app.use('/messages', messageRouter);
+
+app.get('/health', (_, res) => {
+  res.json({
+    status: 'ok',
+    service: 'chat-service',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/ready', async (_, res) => {
+  const dbInitialized = AppDataSource.isInitialized;
+  let dbPingOk = false;
+  let dbError: string | null = null;
+
+  if (dbInitialized) {
+    try {
+      await AppDataSource.query('SELECT 1');
+      dbPingOk = true;
+    } catch (error: any) {
+      dbError = error?.message || 'Database ping failed';
+    }
+  } else {
+    dbError = 'DataSource is not initialized';
+  }
+
+const rabbit = getRabbitMQStatus();
+  const redis = getRedisStatus();
+
+  const ready = dbInitialized && dbPingOk;
+  const statusCode = ready ? 200 : 503;
+
+  res.status(statusCode).json({
+    ready,
+    checks: {
+      database: {
+        initialized: dbInitialized,
+        ping: dbPingOk,
+        error: dbError,
+        host: config.db.host,
+        port: config.db.port,
+        database: config.db.database,
+      },
+      rabbitmq: rabbit,
+      redis: redis,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function initDatabaseWithRetry() {
+  const attempts = config.db.connectRetryAttempts;
+  const delayMs = config.db.connectRetryDelayMs;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await ensureDatabase();
+      if (!AppDataSource.isInitialized) {
+        await AppDataSource.initialize();
+      }
+      console.log('Database connected');
+      return;
+    } catch (error: any) {
+      const code = error?.code || 'UNKNOWN';
+      const message = error?.message || 'Unknown database error';
+      console.error(
+        `[DB] Connection attempt ${attempt}/${attempts} failed (${code}): ${message}`
+      );
+
+      if (attempt >= attempts) {
+        throw error;
+      }
+
+      console.log(
+        `[DB] Retrying in ${delayMs}ms (host=${config.db.host}, port=${config.db.port}, db=${config.db.database})`
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
+async function bootstrap() {
+  try {
+    await initDatabaseWithRetry();
+
+    await connectRabbitMQ();
+    await connectRedis();
+
+    app.listen(config.port, () => {
+      console.log(`chat-service running on port ${config.port}`);
+    });
+  } catch (error) {
+    console.error('Failed to start:', error);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', async () => {
+  await closeRabbitMQ();
+  await closeRedis();
+  if (AppDataSource.isInitialized) {
+    await AppDataSource.destroy();
+  }
+  process.exit(0);
+});
+
+bootstrap();
+</file>
+
+<file path="realtime-service/src/main/resources/application.properties">
+# ===============================================================
+# CORE APPLICATION
+# ===============================================================
+spring.application.name=realtime-service
+
+# ===============================================================
+# SECURITY
+# ===============================================================
+# Must match JWT signing secret from API Gateway/Auth service
+jwt.secret=${JWT_SECRET:dev-local-jwt-secret-change-me}
+# Internal key used for trusted service-to-service endpoints
+app.internal-api-key=${INTERNAL_API_KEY:dev-internal-key-change-me}
+
+# ===============================================================
+# INFRASTRUCTURE
+# ===============================================================
+spring.data.redis.host=${REDIS_HOST:localhost}
+spring.data.redis.port=${REDIS_PORT:6379}
+spring.data.redis.password=${REDIS_PASSWORD:}
+
+# ===============================================================
+# REALTIME CONFIGURATION
+# ===============================================================
+# Presence backend: memory or redis
+presence.store=${PRESENCE_STORE:memory}
+# Allowed CORS origins for websocket endpoint
+app.allowed-origins=${ALLOWED_ORIGINS:*}
+
+# ===============================================================
+# OBSERVABILITY
+# ===============================================================
+app.version=${APP_VERSION:1.0.0}
+logging.level.chatapp.realtimeservice=${LOG_LEVEL:DEBUG}
+logging.level.org.springframework.web=${LOG_LEVEL_SPRING:DEBUG}
+logging.level.org.springframework.messaging=${LOG_LEVEL_SPRING:DEBUG}
 </file>
 
 <file path="chat-service/src/chat/chat.service.ts">
@@ -7607,7 +7969,8 @@ export async function sendMessage(
   conversationId: string,
   content: string,
   contentType = 'TEXT',
-  attachments: any[] = []
+  attachments: any[] = [],
+  replyToId?: string | null
 ) {
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (!conversation) throw new Error('Conversation not found');
@@ -7624,8 +7987,10 @@ export async function sendMessage(
     senderId: userId,
     contentType,
     content: trimmedContent,
+    replyToId: replyToId || undefined,
   });
   await messageRepo().save(message);
+  console.log(`[sendMessage] saved message ${message.id}, replyToId=${message.replyToId}`);
   
   // Handle attachments if provided
   if (attachments && attachments.length > 0) {
@@ -7711,132 +8076,39 @@ export async function uploadMedia(userId: string, file: any) {
 }
 </file>
 
-<file path="chat-service/src/main.ts">
-import 'reflect-metadata';
-import express from 'express';
-import cors from 'cors';
-import { AppDataSource, ensureDatabase } from './db';
-import { config } from './config';
-import { connectRabbitMQ, closeRabbitMQ, getRabbitMQStatus } from './rabbitmq';
-import { connectRedis, closeRedis, getRedisStatus } from './redis';
-import chatRouter from './chat/chat.router';
-import messageRouter from './messages/message.router';
+<file path="chat-service/src/config.ts">
+import 'dotenv/config';
 
-const app = express();
-app.use(cors(), express.json());
-
-app.use('/conversations', chatRouter);
-// Keep old /chat prefix for backward compatibility
-app.use('/chat', chatRouter);
-app.use('/messages', messageRouter);
-
-app.get('/health', (_, res) => {
-  res.json({
-    status: 'ok',
-    service: 'chat-service',
-    timestamp: new Date().toISOString(),
-  });
-});
-
-app.get('/ready', async (_, res) => {
-  const dbInitialized = AppDataSource.isInitialized;
-  let dbPingOk = false;
-  let dbError: string | null = null;
-
-  if (dbInitialized) {
-    try {
-      await AppDataSource.query('SELECT 1');
-      dbPingOk = true;
-    } catch (error: any) {
-      dbError = error?.message || 'Database ping failed';
-    }
-  } else {
-    dbError = 'DataSource is not initialized';
-  }
-
-const rabbit = getRabbitMQStatus();
-  const redis = getRedisStatus();
-
-  const ready = dbInitialized && dbPingOk;
-  const statusCode = ready ? 200 : 503;
-
-  res.status(statusCode).json({
-    ready,
-    checks: {
-      database: {
-        initialized: dbInitialized,
-        ping: dbPingOk,
-        error: dbError,
-        host: config.db.host,
-        port: config.db.port,
-        database: config.db.database,
-      },
-      rabbitmq: rabbit,
-      redis: redis,
-    },
-    timestamp: new Date().toISOString(),
-  });
-});
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function initDatabaseWithRetry() {
-  const attempts = config.db.connectRetryAttempts;
-  const delayMs = config.db.connectRetryDelayMs;
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      await ensureDatabase();
-      if (!AppDataSource.isInitialized) {
-        await AppDataSource.initialize();
-      }
-      console.log('Database connected');
-      return;
-    } catch (error: any) {
-      const code = error?.code || 'UNKNOWN';
-      const message = error?.message || 'Unknown database error';
-      console.error(
-        `[DB] Connection attempt ${attempt}/${attempts} failed (${code}): ${message}`
-      );
-
-      if (attempt >= attempts) {
-        throw error;
-      }
-
-      console.log(
-        `[DB] Retrying in ${delayMs}ms (host=${config.db.host}, port=${config.db.port}, db=${config.db.database})`
-      );
-      await sleep(delayMs);
-    }
-  }
-}
-
-async function bootstrap() {
-  try {
-    await initDatabaseWithRetry();
-
-    await connectRabbitMQ();
-    await connectRedis();
-
-    app.listen(config.port, () => {
-      console.log(`chat-service running on port ${config.port}`);
-    });
-  } catch (error) {
-    console.error('Failed to start:', error);
-    process.exit(1);
-  }
-}
-
-process.on('SIGTERM', async () => {
-  await closeRabbitMQ();
-  await closeRedis();
-  if (AppDataSource.isInitialized) {
-    await AppDataSource.destroy();
-  }
-  process.exit(0);
-});
-
-bootstrap();
+export const config = {
+  port: Number(process.env.PORT) || 3003,
+  db: {
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    username: process.env.DB_USER || 'root',
+    password: process.env.DB_PASS || '',
+    database: process.env.DB_NAME || 'chat_service',
+    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
+    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    authSwitchHandler: () => {},
+  },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
+    exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
+    routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
+  },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
+  },
+  realtimeService: {
+    url: process.env.REALTIME_SERVICE_URL || '',
+    internalApiKey: process.env.INTERNAL_API_KEY || '',
+  },
+  authService: {
+    url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
+  },
+};
 </file>
 
 <file path="chat-service/src/rabbitmq.ts">
@@ -7995,79 +8267,6 @@ export async function publishTyping(payload: {
   };
   return publishEvent(`chat.typing.${payload.isTyping ? 'start' : 'stop'}`, event);
 }
-</file>
-
-<file path="realtime-service/src/main/resources/application.properties">
-# ===============================================================
-# CORE APPLICATION
-# ===============================================================
-spring.application.name=realtime-service
-
-# ===============================================================
-# SECURITY
-# ===============================================================
-# Must match JWT signing secret from API Gateway/Auth service
-jwt.secret=${JWT_SECRET:dev-local-jwt-secret-change-me}
-# Internal key used for trusted service-to-service endpoints
-app.internal-api-key=${INTERNAL_API_KEY:dev-internal-key-change-me}
-
-# ===============================================================
-# INFRASTRUCTURE
-# ===============================================================
-spring.data.redis.host=${REDIS_HOST:localhost}
-spring.data.redis.port=${REDIS_PORT:6379}
-spring.data.redis.password=${REDIS_PASSWORD:}
-
-# ===============================================================
-# REALTIME CONFIGURATION
-# ===============================================================
-# Presence backend: memory or redis
-presence.store=${PRESENCE_STORE:memory}
-# Allowed CORS origins for websocket endpoint
-app.allowed-origins=${ALLOWED_ORIGINS:*}
-
-# ===============================================================
-# OBSERVABILITY
-# ===============================================================
-app.version=${APP_VERSION:1.0.0}
-logging.level.chatapp.realtimeservice=${LOG_LEVEL:DEBUG}
-logging.level.org.springframework.web=${LOG_LEVEL_SPRING:DEBUG}
-logging.level.org.springframework.messaging=${LOG_LEVEL_SPRING:DEBUG}
-</file>
-
-<file path="chat-service/src/config.ts">
-import 'dotenv/config';
-
-export const config = {
-  port: Number(process.env.PORT) || 3003,
-  db: {
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
-    username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASS || '',
-    database: process.env.DB_NAME || 'chat_service',
-    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
-    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
-    authSwitchHandler: () => {},
-  },
-  rabbitmq: {
-    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
-    exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
-    routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
-  },
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: Number(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || '',
-  },
-  realtimeService: {
-    url: process.env.REALTIME_SERVICE_URL || '',
-    internalApiKey: process.env.INTERNAL_API_KEY || '',
-  },
-  authService: {
-    url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
-  },
-};
 </file>
 
 <file path="docker-compose.yml">
