@@ -6,6 +6,7 @@ import {
   MessageForward,
   MessagePin,
   MessageReaction,
+  User,
 } from '../db';
 
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
@@ -50,6 +51,51 @@ export async function listMessages(
   const hasMore = rows.length > safeLimit;
   const items = hasMore ? rows.slice(0, safeLimit) : rows;
 
+  // Collect all replyToIds to batch-fetch replied messages
+  const replyToIds = [...new Set(items.map(m => m.replyToId).filter(Boolean))] as string[];
+  const repliedMessagesMap = new Map<string, any>();
+
+  console.log(`[listMessages] ${items.length} messages, ${replyToIds.length} have replyToId`);
+
+  if (replyToIds.length > 0) {
+    const repliedMsgs = await messageRepo()
+      .createQueryBuilder('r')
+      .where('r.id IN (:...ids)', { ids: replyToIds })
+      .getMany();
+
+    console.log(`[listMessages] fetched ${repliedMsgs.length} replied messages`);
+
+    // Batch-fetch senders of replied messages
+    const senderIds = [...new Set(repliedMsgs.map(r => r.senderId))];
+    let senderMap = new Map<string, string>();
+
+    if (senderIds.length > 0) {
+      try {
+        const userRepo = AppDataSource.getRepository(User);
+        const senders = await userRepo
+          .createQueryBuilder('u')
+          .select(['u.id', 'u.displayName'])
+          .where('u.id IN (:...ids)', { ids: senderIds })
+          .getMany();
+        senderMap = new Map(senders.map(u => [u.id, u.displayName]));
+        console.log(`[listMessages] fetched ${senders.length} sender names`);
+      } catch (err) {
+        console.warn('[listMessages] senderName lookup failed:', err);
+      }
+    }
+
+    for (const r of repliedMsgs) {
+      repliedMessagesMap.set(r.id, {
+        messageId: r.id,
+        senderId: r.senderId,
+        senderName: senderMap.get(r.senderId) || 'Người dùng',
+        body: r.content,
+        attachments: Array.isArray(r.attachments) ? r.attachments : [],
+        isDeleted: false,
+      });
+    }
+  }
+
   const normalized = items
     .reverse()
     .map((msg) => ({
@@ -59,6 +105,7 @@ export async function listMessages(
       createdAt: toEpoch(msg.createdAt),
       isDeleted: false,
       replyToMessageId: msg.replyToId || null,
+      replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
     }));
 
   const nextCursor =

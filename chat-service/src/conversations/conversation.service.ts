@@ -129,7 +129,8 @@ export async function listConversations(userId: string, page: number = 1, limit:
       const members = memberMap.get(c.id) || [];
       const otherMember = members.find(m => m.userId !== userId);
       let name = c.title || 'Cuộc trò chuyện';
-      if (otherMember?.displayName) {
+      // Chỉ dùng tên user cho DIRECT, giữ nguyên title cho GROUP
+      if (c.type === 'DIRECT' && otherMember?.displayName) {
         name = otherMember.displayName;
       }
       return {
@@ -176,7 +177,8 @@ export async function createGroupConversation(
   createdBy: string,
   name: string,
   memberIds: string[],
-  avatarUrl?: string
+  avatarUrl?: string,
+  description?: string
 ) {
   const uniqueMembers = [...new Set(memberIds.filter(id => id !== createdBy))];
   
@@ -195,7 +197,8 @@ export async function createGroupConversation(
     type: 'GROUP',
     title: name.trim(),
     createdBy,
-    avatarUrl
+    avatarUrl,
+    description: description?.trim() || undefined
   });
   await conversationRepo().save(conversation);
   
@@ -204,7 +207,8 @@ export async function createGroupConversation(
     memberRepo().create({ 
       conversationId: conversation.id, 
       userId,
-      role: userId === createdBy ? 'OWNER' : 'MEMBER'
+      role: userId === createdBy ? 'OWNER' : 'MEMBER',
+      joinedAt: new Date()
     })
   ));
   
@@ -395,7 +399,7 @@ export async function addMembers(
   }
   
   await memberRepo().save(newMemberIds.map(userId => 
-    memberRepo().create({ conversationId, userId, role: 'MEMBER' })
+    memberRepo().create({ conversationId, userId, role: 'MEMBER', joinedAt: new Date() })
   ));
   
   return { message: `Added ${newMemberIds.length} members successfully` };
@@ -617,7 +621,8 @@ export async function acceptInvite(
   await memberRepo().save(memberRepo().create({
     conversationId,
     userId,
-    role: 'MEMBER'
+    role: 'MEMBER',
+    joinedAt: new Date()
   }));
   
   // Update invite status
