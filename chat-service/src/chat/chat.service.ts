@@ -263,15 +263,27 @@ export async function sendMessage(
   
   // Handle attachments if provided
   if (attachments && attachments.length > 0) {
-    const normalizedAttachments = attachments.map((att) => ({
-      key: att.key,
-      url: att.url,
-      type: att.type || (att.contentType?.startsWith('image/') ? 'image' : att.contentType?.startsWith('video/') ? 'video' : 'document'),
-      name: att.name || att.fileName || att.originalName || 'file',
-      size: att.size,
-      contentType: att.contentType || att.content_type || 'application/octet-stream',
-      thumbnailUrl: att.thumbnailUrl || att.thumbnail_key || null,
-    }));
+    console.log('[sendMessage] raw attachments:', JSON.stringify(attachments, null, 2));
+    
+    const normalizedAttachments = attachments.map((att) => {
+      const inferredType = att.type || 
+        (att.contentType?.startsWith('image/') ? 'image' : 
+         att.contentType?.startsWith('video/') ? 'video' : 
+         att.content_type?.startsWith('image/') ? 'image' :
+         att.content_type?.startsWith('video/') ? 'video' : 'document');
+      
+      return {
+        key: att.key,
+        url: att.url,
+        type: inferredType,
+        name: att.name || att.fileName || att.originalName || 'file',
+        size: att.size,
+        contentType: att.contentType || att.content_type || 'application/octet-stream',
+        thumbnailUrl: att.thumbnailUrl || att.thumbnail_key || null,
+      };
+    });
+
+    console.log('[sendMessage] normalized attachments:', JSON.stringify(normalizedAttachments, null, 2));
 
     message.attachments = normalizedAttachments;
     await messageRepo().save(message);
