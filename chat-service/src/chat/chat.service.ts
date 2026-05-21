@@ -263,24 +263,20 @@ export async function sendMessage(
   
   // Handle attachments if provided
   if (attachments && attachments.length > 0) {
-    const savedAttachments = [];
-    
-    for (const attachment of attachments) {
-      const savedAttachment = attachmentRepo().create({
-        id: uuid(),
-        messageId: message.id,
-        key: attachment.key,
-        url: attachment.url,
-        originalName: attachment.originalName,
-        mimeType: attachment.mimeType,
-        size: attachment.size,
-      });
-      await attachmentRepo().save(savedAttachment);
-      savedAttachments.push(savedAttachment);
-    }
-    
-    // Add attachments to message response
-    (message as any).attachments = savedAttachments;
+    const normalizedAttachments = attachments.map((att) => ({
+      key: att.key,
+      url: att.url,
+      type: att.type || (att.contentType?.startsWith('image/') ? 'image' : att.contentType?.startsWith('video/') ? 'video' : 'document'),
+      name: att.name || att.fileName || att.originalName || 'file',
+      size: att.size,
+      contentType: att.contentType || att.content_type || 'application/octet-stream',
+      thumbnailUrl: att.thumbnailUrl || att.thumbnail_key || null,
+    }));
+
+    message.attachments = normalizedAttachments;
+    await messageRepo().save(message);
+
+    (message as any).attachments = normalizedAttachments;
   }
   
   // Update last message
