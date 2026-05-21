@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record MessageNotificationRequest(
         @JsonProperty("message_id") String messageId,
         @JsonProperty("sender_id") String senderId,
+        @JsonProperty("sender_name") String senderName,
         @JsonProperty("receiver_id") String receiverId,
         @JsonProperty("conversation_id") String conversationId,
         @JsonProperty("content") String content,

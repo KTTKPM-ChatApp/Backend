@@ -297,9 +297,19 @@ export async function sendMessage(
   
   // Gửi notification real-time tới tất cả participants (trừ sender)
   const receiverIds = participantIds.filter(id => id !== userId);
+  
+  let senderName = 'Người dùng';
+  try {
+    const sender = await userRepo().findOneBy({ id: userId });
+    if (sender) senderName = sender.displayName;
+  } catch (err) {
+    console.warn('[sendMessage] senderName lookup failed:', err);
+  }
+  
   await notifyNewMessage({
     messageId: message.id,
     senderId: userId,
+    senderName,
     receiverIds,
     conversationId: conversation.id,
     content: message.content,

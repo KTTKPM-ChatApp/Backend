@@ -96,12 +96,32 @@ export async function listMessages(
     }
   }
 
+  // Batch-fetch sender names for ALL messages
+  const allSenderIds = [...new Set(items.map(m => m.senderId))];
+  let senderNameMap = new Map<string, string>();
+
+  if (allSenderIds.length > 0) {
+    try {
+      const userRepo = AppDataSource.getRepository(User);
+      const senders = await userRepo
+        .createQueryBuilder('u')
+        .select(['u.id', 'u.displayName'])
+        .where('u.id IN (:...ids)', { ids: allSenderIds })
+        .getMany();
+      senderNameMap = new Map(senders.map(u => [u.id, u.displayName]));
+      console.log(`[listMessages] fetched ${senders.length} sender names for all messages`);
+    } catch (err) {
+      console.warn('[listMessages] senderName lookup for all messages failed:', err);
+    }
+  }
+
   const normalized = items
     .reverse()
     .map((msg) => ({
       ...msg,
       messageId: msg.id,
       body: msg.content,
+      senderName: senderNameMap.get(msg.senderId) || 'Người dùng',
       createdAt: toEpoch(msg.createdAt),
       isDeleted: false,
       replyToMessageId: msg.replyToId || null,
@@ -133,10 +153,20 @@ export async function getMessageDetail(
     throw new Error('Message timestamp mismatch');
   }
 
+  let senderName = 'Người dùng';
+  try {
+    const userRepo = AppDataSource.getRepository(User);
+    const sender = await userRepo.findOneBy({ id: message.senderId });
+    if (sender) senderName = sender.displayName;
+  } catch (err) {
+    console.warn('[getMessageDetail] senderName lookup failed:', err);
+  }
+
   return {
     ...message,
     messageId: message.id,
     body: message.content,
+    senderName,
     createdAt: toEpoch(message.createdAt),
     isDeleted: false,
     replyToMessageId: message.replyToId || null,
@@ -194,10 +224,28 @@ export async function searchMessages(
       })
     : rows;
 
+  // Batch-fetch sender names
+  const searchSenderIds = [...new Set(filtered.map(m => m.senderId))];
+  let searchSenderMap = new Map<string, string>();
+  if (searchSenderIds.length > 0) {
+    try {
+      const userRepo = AppDataSource.getRepository(User);
+      const senders = await userRepo
+        .createQueryBuilder('u')
+        .select(['u.id', 'u.displayName'])
+        .where('u.id IN (:...ids)', { ids: searchSenderIds })
+        .getMany();
+      searchSenderMap = new Map(senders.map(u => [u.id, u.displayName]));
+    } catch (err) {
+      console.warn('[searchMessages] senderName lookup failed:', err);
+    }
+  }
+
   return filtered.map((msg) => ({
     ...msg,
     messageId: msg.id,
     body: msg.content,
+    senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
     createdAt: toEpoch(msg.createdAt),
     isDeleted: false,
     replyToMessageId: msg.replyToId || null,
@@ -408,10 +456,20 @@ export async function editMessage(
   msg.editedAt = new Date();
   await messageRepo().save(msg);
 
+  let senderName = 'Người dùng';
+  try {
+    const userRepo = AppDataSource.getRepository(User);
+    const sender = await userRepo.findOneBy({ id: msg.senderId });
+    if (sender) senderName = sender.displayName;
+  } catch (err) {
+    console.warn('[editMessage] senderName lookup failed:', err);
+  }
+
   return {
     ...msg,
     messageId: msg.id,
     body: msg.content,
+    senderName,
     createdAt: toEpoch(msg.createdAt),
     editedAt: toEpoch(msg.editedAt),
   };
@@ -420,10 +478,21 @@ export async function editMessage(
 export async function lookupMessageById(messageId: string) {
   const message = await messageRepo().findOneBy({ id: messageId });
   if (!message) return null;
+
+  let senderName = 'Người dùng';
+  try {
+    const userRepo = AppDataSource.getRepository(User);
+    const sender = await userRepo.findOneBy({ id: message.senderId });
+    if (sender) senderName = sender.displayName;
+  } catch (err) {
+    console.warn('[lookupMessageById] senderName lookup failed:', err);
+  }
+
   return {
     ...message,
     messageId: message.id,
     body: message.content,
+    senderName,
     createdAt: toEpoch(message.createdAt),
   };
 }

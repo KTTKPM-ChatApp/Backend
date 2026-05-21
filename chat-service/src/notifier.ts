@@ -4,6 +4,7 @@ import { config } from './config';
 export interface NewMessagePayload {
   messageId: string;
   senderId: string;
+  senderName: string;
   receiverIds: string[];   // Tất cả participants (trừ sender) - hỗ trợ cả group
   conversationId: string;
   content: string;
@@ -38,6 +39,7 @@ export async function notifyNewMessage(payload: NewMessagePayload): Promise<void
       {
         message_id:      payload.messageId,
         sender_id:       payload.senderId,
+        sender_name:     payload.senderName,
         receiver_id:     receiverId,
         conversation_id: payload.conversationId,
         content:         payload.content,
