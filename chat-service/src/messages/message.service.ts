@@ -15,6 +15,49 @@ const pinRepo = () => AppDataSource.getRepository(MessagePin);
 const reactionRepo = () => AppDataSource.getRepository(MessageReaction);
 const forwardRepo = () => AppDataSource.getRepository(MessageForward);
 
+function parseAttachments(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return []; }
+  }
+  return [];
+}
+
+function normalizeAttachment(raw: any): any {
+  if (!raw) return null;
+  const contentType = raw.contentType || raw.mimeType || raw.content_type || '';
+  const inferredType = raw.type ||
+    (contentType.startsWith('image/') ? 'image' :
+     contentType.startsWith('video/') ? 'video' :
+     contentType.startsWith('audio/') ? 'audio' : 'document');
+  return {
+    key: raw.key || raw.publicId || '',
+    url: raw.url || '',
+    type: inferredType,
+    name: raw.name || raw.fileName || raw.originalName || 'file',
+    size: raw.size || 0,
+    contentType,
+    thumbnailUrl: raw.thumbnailUrl || raw.thumbnail_key || null,
+    publicId: raw.publicId || raw.key || null,
+    resourceType: raw.resourceType || null,
+  };
+}
+
+function detectContentType(content: string, attachments: any[]): string {
+  if (!content && attachments.length > 0) {
+    const hasMedia = attachments.some(a => a.type === 'image' || a.type === 'video');
+    const hasFiles = attachments.some(a => a.type === 'document' || a.type === 'file' || a.type === 'audio');
+    if (hasMedia && hasFiles) return 'MIXED';
+    if (hasMedia) return 'MEDIA';
+    if (hasFiles) return 'FILE';
+    return 'MEDIA';
+  }
+  if (content && attachments.length > 0) return 'MIXED';
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  if (urlRegex.test(content) && !attachments.length) return 'LINK';
+  return 'TEXT';
+}
+
 async function ensureMember(userId: string, conversationId: string) {
   const member = await memberRepo().findOneBy({ userId, conversationId });
   if (!member) {
@@ -82,12 +125,13 @@ export async function listMessages(
     }
 
     for (const r of repliedMsgs) {
+      const repliedAttachments = parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
       repliedMessagesMap.set(r.id, {
         messageId: r.id,
         senderId: r.senderId,
         senderName: senderMap.get(r.senderId) || 'Người dùng',
         body: r.content,
-        attachments: Array.isArray(r.attachments) ? r.attachments : [],
+        attachments: repliedAttachments,
         isDeleted: false,
       });
     }
@@ -111,16 +155,23 @@ export async function listMessages(
 
   const normalized = items
     .reverse()
-    .map((msg) => ({
-      ...msg,
-      messageId: msg.id,
-      body: msg.content,
-      senderName: senderNameMap.get(msg.senderId) || 'Người dùng',
-      createdAt: toEpoch(msg.createdAt),
-      isDeleted: false,
-      replyToMessageId: msg.replyToId || null,
-      replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
-    }));
+    .map((msg) => {
+      const rawAttachments = parseAttachments(msg.attachments);
+      const attachments = rawAttachments.map(normalizeAttachment).filter(Boolean);
+      const contentType = detectContentType(msg.content, attachments);
+      return {
+        ...msg,
+        messageId: msg.id,
+        body: msg.content,
+        contentType,
+        attachments,
+        senderName: senderNameMap.get(msg.senderId) || 'Người dùng',
+        createdAt: toEpoch(msg.createdAt),
+        isDeleted: false,
+        replyToMessageId: msg.replyToId || null,
+        replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
+      };
+    });
 
   const nextCursor =
     hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
@@ -155,10 +206,13 @@ export async function getMessageDetail(
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
 
+  const attachments = parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
   return {
     ...message,
     messageId: message.id,
     body: message.content,
+    contentType: detectContentType(message.content, attachments),
+    attachments,
     senderName,
     createdAt: toEpoch(message.createdAt),
     isDeleted: false,
@@ -203,15 +257,15 @@ export async function searchMessages(
   const rows = await qb.getMany();
   const filtered = fileType
     ? rows.filter((row) => {
-        const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+        const attachments = parseAttachments(row.attachments);
         if (fileType === 'images') {
-          return attachments.some((a: any) => String(a?.contentType || '').startsWith('image/'));
+          return attachments.some((a: any) => a?.type === 'image' || String(a?.contentType || '').startsWith('image/'));
         }
         if (fileType === 'video') {
-          return attachments.some((a: any) => String(a?.contentType || '').startsWith('video/'));
+          return attachments.some((a: any) => a?.type === 'video' || String(a?.contentType || '').startsWith('video/'));
         }
         if (fileType === 'files') {
-          return attachments.some((a: any) => !String(a?.contentType || '').startsWith('image/') && !String(a?.contentType || '').startsWith('video/'));
+          return attachments.some((a: any) => a?.type === 'document' || a?.type === 'file' || (!String(a?.contentType || '').startsWith('image/') && !String(a?.contentType || '').startsWith('video/')));
         }
         return true;
       })
@@ -231,15 +285,20 @@ export async function searchMessages(
     }
   }
 
-  return filtered.map((msg) => ({
-    ...msg,
-    messageId: msg.id,
-    body: msg.content,
-    senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
-    createdAt: toEpoch(msg.createdAt),
-    isDeleted: false,
-    replyToMessageId: msg.replyToId || null,
-  }));
+  return filtered.map((msg) => {
+    const attachments = parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
+    return {
+      ...msg,
+      messageId: msg.id,
+      body: msg.content,
+      contentType: detectContentType(msg.content, attachments),
+      attachments,
+      senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
+      createdAt: toEpoch(msg.createdAt),
+      isDeleted: false,
+      replyToMessageId: msg.replyToId || null,
+    };
+  });
 }
 
 export async function forwardMessage(
