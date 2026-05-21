@@ -6,8 +6,8 @@ import {
   MessageForward,
   MessagePin,
   MessageReaction,
-  User,
 } from '../db';
+import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
 
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
@@ -71,14 +71,11 @@ export async function listMessages(
 
     if (senderIds.length > 0) {
       try {
-        const userRepo = AppDataSource.getRepository(User);
-        const senders = await userRepo
-          .createQueryBuilder('u')
-          .select(['u.id', 'u.displayName'])
-          .where('u.id IN (:...ids)', { ids: senderIds })
-          .getMany();
-        senderMap = new Map(senders.map(u => [u.id, u.displayName]));
-        console.log(`[listMessages] fetched ${senders.length} sender names`);
+        const sendersInfo = await fetchUsersInfo(senderIds);
+        sendersInfo.forEach((info, id) => {
+          senderMap.set(id, info.displayName);
+        });
+        console.log(`[listMessages] fetched ${sendersInfo.size} sender names`);
       } catch (err) {
         console.warn('[listMessages] senderName lookup failed:', err);
       }
@@ -102,14 +99,11 @@ export async function listMessages(
 
   if (allSenderIds.length > 0) {
     try {
-      const userRepo = AppDataSource.getRepository(User);
-      const senders = await userRepo
-        .createQueryBuilder('u')
-        .select(['u.id', 'u.displayName'])
-        .where('u.id IN (:...ids)', { ids: allSenderIds })
-        .getMany();
-      senderNameMap = new Map(senders.map(u => [u.id, u.displayName]));
-      console.log(`[listMessages] fetched ${senders.length} sender names for all messages`);
+      const sendersInfo = await fetchUsersInfo(allSenderIds);
+      sendersInfo.forEach((info, id) => {
+        senderNameMap.set(id, info.displayName);
+      });
+      console.log(`[listMessages] fetched ${sendersInfo.size} sender names for all messages`);
     } catch (err) {
       console.warn('[listMessages] senderName lookup for all messages failed:', err);
     }
@@ -155,9 +149,8 @@ export async function getMessageDetail(
 
   let senderName = 'Người dùng';
   try {
-    const userRepo = AppDataSource.getRepository(User);
-    const sender = await userRepo.findOneBy({ id: message.senderId });
-    if (sender) senderName = sender.displayName;
+    const senderInfo = await fetchUserInfo(message.senderId);
+    if (senderInfo) senderName = senderInfo.displayName;
   } catch (err) {
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
@@ -229,13 +222,10 @@ export async function searchMessages(
   let searchSenderMap = new Map<string, string>();
   if (searchSenderIds.length > 0) {
     try {
-      const userRepo = AppDataSource.getRepository(User);
-      const senders = await userRepo
-        .createQueryBuilder('u')
-        .select(['u.id', 'u.displayName'])
-        .where('u.id IN (:...ids)', { ids: searchSenderIds })
-        .getMany();
-      searchSenderMap = new Map(senders.map(u => [u.id, u.displayName]));
+      const sendersInfo = await fetchUsersInfo(searchSenderIds);
+      sendersInfo.forEach((info, id) => {
+        searchSenderMap.set(id, info.displayName);
+      });
     } catch (err) {
       console.warn('[searchMessages] senderName lookup failed:', err);
     }
@@ -458,9 +448,8 @@ export async function editMessage(
 
   let senderName = 'Người dùng';
   try {
-    const userRepo = AppDataSource.getRepository(User);
-    const sender = await userRepo.findOneBy({ id: msg.senderId });
-    if (sender) senderName = sender.displayName;
+    const senderInfo = await fetchUserInfo(msg.senderId);
+    if (senderInfo) senderName = senderInfo.displayName;
   } catch (err) {
     console.warn('[editMessage] senderName lookup failed:', err);
   }
@@ -481,9 +470,8 @@ export async function lookupMessageById(messageId: string) {
 
   let senderName = 'Người dùng';
   try {
-    const userRepo = AppDataSource.getRepository(User);
-    const sender = await userRepo.findOneBy({ id: message.senderId });
-    if (sender) senderName = sender.displayName;
+    const senderInfo = await fetchUserInfo(message.senderId);
+    if (senderInfo) senderName = senderInfo.displayName;
   } catch (err) {
     console.warn('[lookupMessageById] senderName lookup failed:', err);
   }
