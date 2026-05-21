@@ -54,7 +54,7 @@ router.post('/group',
     body('name').isString().notEmpty().isLength({ max: 255 }),
     body('memberIds').isArray({ min: 1, max: 100 }),
     body('memberIds.*').isUUID(),
-    body('avatarUrl').optional().isURL(),
+    body('avatarUrl').optional().isString().isLength({ max: 1000 }),
     body('description').optional().isString().isLength({ max: 500 }),
   ],
   validate,
@@ -102,7 +102,7 @@ router.patch('/:conversationId',
   [
     param('conversationId').isUUID(),
     body('name').optional().isString().isLength({ max: 255 }),
-    body('avatarUrl').optional().isURL(),
+    body('avatarUrl').optional().isString().isLength({ max: 1000 }),
   ],
   validate,
   async (req: AuthReq, res: Response) => {
@@ -189,7 +189,30 @@ router.post('/:conversationId/leave',
   }
 );
 
-// 2.4 Cập nhật vai trò thành viên
+// 2.4 Chuyển quyền trưởng nhóm
+router.post('/:conversationId/transfer-ownership',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('newOwnerId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { newOwnerId } = req.body;
+      const result = await conversationService.transferOwnership(
+        req.userId!,
+        req.params.conversationId,
+        newOwnerId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 2.5 Cập nhật vai trò thành viên
 router.patch('/:conversationId/members/:memberId/role',
   authenticate,
   [
@@ -214,7 +237,7 @@ router.patch('/:conversationId/members/:memberId/role',
   }
 );
 
-// 2.5 Cập nhật cài đặt cá nhân
+// 2.6 Cập nhật cài đặt cá nhân
 router.patch('/:conversationId/settings',
   authenticate,
   [

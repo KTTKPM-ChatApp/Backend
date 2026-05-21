@@ -26,7 +26,17 @@ router.post('/register',
       await authService.register(username, email, password, displayName, parsedDateOfBirth, gender, bio, phone);
       const loginResult = await authService.login(email, password);
       res.status(201).json(loginResult);
-    } catch (e: any) { res.status(409).json({ message: e.message }); }
+    } catch (e: any) {
+      const msg = e.message || '';
+      if (msg === 'Email already in use' || msg === 'Username already taken') {
+        res.status(409).json({ message: msg });
+      } else if (msg.includes('login') || msg.includes('password') || msg.includes('Password incorrect') || msg.includes('inactive')) {
+        res.status(401).json({ message: 'Đăng ký thành công, nhưng không thể đăng nhập tự động. Vui lòng đăng nhập lại.' });
+      } else {
+        console.error('[Register] Unexpected error:', e);
+        res.status(500).json({ message: 'Lỗi hệ thống, vui lòng thử lại sau' });
+      }
+    }
   }
 );
 
