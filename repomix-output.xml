@@ -2792,1272 +2792,6 @@ export function validate(req: Request, res: Response, next: NextFunction): void 
 }
 </file>
 
-<file path="chat-service/src/conversations/conversation.service.ts">
-import { v4 as uuid } from 'uuid';
-import { 
-  AppDataSource, 
-  Conversation, 
-  ConversationMember, 
-  Message,
-  ConversationInvite,
-  ConversationPoll,
-  PollVote,
-  ConversationCall,
-  ConversationSettings,
-  UserPinnedConversation,
-  PollOption,
-  CallParticipant,
-  ConversationPermissions,
-  ConversationPolicies,
-  ConversationFeatures
-} from '../db';
-import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
-import { publishConversationCreated } from '../rabbitmq';
-
-// Repository getters
-const conversationRepo = () => AppDataSource.getRepository(Conversation);
-const memberRepo = () => AppDataSource.getRepository(ConversationMember);
-const messageRepo = () => AppDataSource.getRepository(Message);
-const inviteRepo = () => AppDataSource.getRepository(ConversationInvite);
-const pollRepo = () => AppDataSource.getRepository(ConversationPoll);
-const voteRepo = () => AppDataSource.getRepository(PollVote);
-const callRepo = () => AppDataSource.getRepository(ConversationCall);
-const settingsRepo = () => AppDataSource.getRepository(ConversationSettings);
-const pinnedRepo = () => AppDataSource.getRepository(UserPinnedConversation);
-
-// Helper functions
-function buildDirectKey(userId1: string, userId2: string): string {
-  return [userId1, userId2].sort().join(':');
-}
-
-async function checkMembership(userId: string, conversationId: string): Promise<ConversationMember> {
-  const member = await memberRepo().findOneBy({ conversationId, userId });
-  if (!member) {
-    throw new Error('You are not a member of this conversation');
-  }
-  return member;
-}
-
-async function checkAdminPermission(userId: string, conversationId: string): Promise<ConversationMember> {
-  const member = await checkMembership(userId, conversationId);
-  if (member.role !== 'OWNER' && member.role !== 'ADMIN') {
-    throw new Error('Only admin or owner can perform this action');
-  }
-  return member;
-}
-
-async function checkOwnerPermission(userId: string, conversationId: string): Promise<ConversationMember> {
-  const member = await checkMembership(userId, conversationId);
-  if (member.role !== 'OWNER') {
-    throw new Error('Only owner can perform this action');
-  }
-  return member;
-}
-
-// 1. Quản lý Conversation cơ bản
-
-export async function listConversations(userId: string, page: number = 1, limit: number = 20) {
-  const offset = (page - 1) * limit;
-  
-  const conversations = await conversationRepo()
-    .createQueryBuilder('c')
-    .innerJoin(ConversationMember, 'm', 'm.conversation_id = c.id AND m.user_id = :userId', { userId })
-    .leftJoin(UserPinnedConversation, 'p', 'p.conversation_id = c.id AND p.user_id = :userId', { userId })
-    .orderBy('p.pinned_at', 'DESC')
-    .addOrderBy('COALESCE(c.last_message_at, c.updated_at)', 'DESC')
-    .addOrderBy('c.id', 'DESC')
-    .limit(limit)
-    .offset(offset)
-    .getMany();
-  
-  const conversationIds = conversations.map(c => c.id);
-  if (conversationIds.length === 0) {
-    return {
-      data: [],
-      meta: {
-        total: 0,
-        page,
-        limit,
-        totalPages: 0,
-        hasNext: false,
-        hasPrev: page > 1
-      }
-    };
-  }
-  
-  const members = await memberRepo()
-    .createQueryBuilder('m')
-    .where('m.conversation_id IN (:...ids)', { ids: conversationIds })
-    .getMany();
-  
-  const memberMap = new Map<string, any[]>();
-  members.forEach(m => {
-    if (!memberMap.has(m.conversationId)) memberMap.set(m.conversationId, []);
-    const memberData = {
-      userId: m.userId,
-      displayName: null as string | null,
-      role: m.role
-    };
-    memberMap.get(m.conversationId)!.push(memberData);
-  });
-
-  const userIds = members.map(m => m.userId);
-  const userInfoMap = await fetchUsersInfo(userIds);
-  for (const [convId, convMembers] of memberMap) {
-    for (const m of convMembers) {
-      const info = userInfoMap.get(m.userId);
-      if (info) {
-        m.displayName = info.displayName;
-      }
-    }
-  }
-  
-  const pinned = await pinnedRepo()
-    .createQueryBuilder('p')
-    .where('p.conversation_id IN (:...ids) AND p.user_id = :userId', { ids: conversationIds, userId })
-    .getMany();
-  
-  const pinnedSet = new Set(pinned.map(p => p.conversationId));
-  
-  return {
-    data: conversations.map(c => {
-      const members = memberMap.get(c.id) || [];
-      const otherMember = members.find(m => m.userId !== userId);
-      let name = c.title || 'Cuộc trò chuyện';
-      if (otherMember?.displayName) {
-        name = otherMember.displayName;
-      }
-      return {
-        ...c,
-        name,
-        members,
-        isPinned: pinnedSet.has(c.id)
-      };
-    }),
-    meta: {
-      total: conversations.length,
-      page,
-      limit,
-      totalPages: Math.ceil(conversations.length / limit),
-      hasNext: conversations.length >= limit,
-      hasPrev: page > 1
-    }
-  };
-}
-
-export async function getConversationById(userId: string, conversationId: string) {
-  await checkMembership(userId, conversationId);
-  
-  const conversation = await conversationRepo().findOneBy({ id: conversationId });
-  if (!conversation) {
-    throw new Error('Conversation not found');
-  }
-  
-  const members = await memberRepo().findBy({ conversationId });
-  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
-  const enrichedMembers = members.map(m => ({
-    userId: m.userId,
-    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
-    role: m.role,
-  }));
-  
-  return {
-    ...conversation,
-    members: enrichedMembers,
-  };
-}
-
-export async function createGroupConversation(
-  createdBy: string,
-  name: string,
-  memberIds: string[],
-  avatarUrl?: string,
-  description?: string
-) {
-  const uniqueMembers = [...new Set(memberIds.filter(id => id !== createdBy))];
-  
-  if (!name?.trim()) {
-    throw new Error('Group conversation requires a name');
-  }
-  if (uniqueMembers.length < 2) {
-    throw new Error('Group conversation requires at least 2 other participants');
-  }
-  if (uniqueMembers.length > 100) {
-    throw new Error('Group conversation cannot have more than 100 members');
-  }
-  
-  const conversation = conversationRepo().create({
-    id: uuid(),
-    type: 'GROUP',
-    title: name.trim(),
-    createdBy,
-    avatarUrl,
-    description: description?.trim() || undefined
-  });
-  await conversationRepo().save(conversation);
-  
-  const allMemberIds = [createdBy, ...uniqueMembers];
-  await memberRepo().save(allMemberIds.map(userId => 
-    memberRepo().create({ 
-      conversationId: conversation.id, 
-      userId,
-      role: userId === createdBy ? 'OWNER' : 'MEMBER'
-    })
-  ));
-  
-  // Initialize default settings
-  await settingsRepo().save(settingsRepo().create({
-    conversationId: conversation.id,
-    permissions: {
-      canAddMembers: true,
-      canRemoveMembers: true,
-      canCreatePolls: true,
-      canStartCall: true,
-      canSendMessage: true
-    },
-    policies: {
-      maxMembers: 100,
-      inviteApproval: false,
-      messageRetention: 30
-    },
-    features: {
-      polls: true,
-      calls: true,
-      fileSharing: true,
-      reactions: true
-    }
-  }));
-  
-  const members = await memberRepo().findBy({ conversationId: conversation.id });
-
-  // Publish conversation.created event
-  await publishConversationCreated({
-    conversationId: conversation.id,
-    type: 'GROUP',
-    createdBy,
-    memberIds: allMemberIds,
-    title: name.trim(),
-  });
-  
-  return {
-    ...conversation,
-    members
-  };
-}
-
-export async function createDirectConversation(
-  createdBy: string,
-  participantId: string
-) {
-  if (participantId === createdBy) {
-    throw new Error('Cannot create conversation with yourself');
-  }
-  
-  const directKey = buildDirectKey(createdBy, participantId);
-  const existing = await conversationRepo().findOneBy({ directKey });
-  
-  if (existing) {
-    const existingMembers = await memberRepo().findBy({ conversationId: existing.id });
-    
-    if (existingMembers.length === 0) {
-      await conversationRepo().delete(existing.id);
-    } else {
-      const userInfoMap = await fetchUsersInfo(existingMembers.map(m => m.userId));
-      const enrichedMembers = existingMembers.map(m => ({
-        userId: m.userId,
-        displayName: userInfoMap.get(m.userId)?.displayName ?? null,
-        role: m.role,
-      }));
-      // Tìm displayName của participant (người kia trong direct conversation)
-      const otherMemberId = existingMembers.find(m => m.userId !== createdBy)?.userId;
-      let name = existing.title || 'Cuộc trò chuyện';
-      if (otherMemberId) {
-        const otherUserInfo = userInfoMap.get(otherMemberId);
-        name = otherUserInfo?.displayName ?? otherUserInfo?.username ?? name;
-      }
-      return {
-        ...existing,
-        name,
-        members: enrichedMembers,
-      };
-    }
-  }
-  
-  const otherUserInfo = await fetchUserInfo(participantId);
-  const title = otherUserInfo?.displayName ?? participantId;
-
-  const conversation = conversationRepo().create({
-    id: uuid(),
-    type: 'DIRECT',
-    createdBy,
-    directKey,
-    title,
-  });
-  await conversationRepo().save(conversation);
-  
-  const memberIds = [createdBy, participantId];
-  
-  for (const userId of memberIds) {
-    const memberEntity = memberRepo().create({ 
-      conversationId: conversation.id, 
-      userId,
-      joinedAt: new Date()
-    });
-    try {
-      await memberRepo().save(memberEntity);
-    } catch (err) {
-      console.error('[createDirectConversation] Error saving member:', userId, err);
-      throw err;
-    }
-  }
-  
-  const members = await memberRepo()
-    .createQueryBuilder('m')
-    .where('m.conversation_id = :convId', { convId: conversation.id })
-    .getMany();
-  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
-  const enrichedMembers = members.map(m => ({
-    userId: m.userId,
-    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
-    role: m.role,
-  }));
-
-  // Publish conversation.created event
-  await publishConversationCreated({
-    conversationId: conversation.id,
-    type: 'DIRECT',
-    createdBy,
-    memberIds,
-    title,
-  });
-  
-  return {
-    ...conversation,
-    name: title,
-    members: enrichedMembers,
-  };
-}
-
-export async function updateConversation(
-  userId: string,
-  conversationId: string,
-  name?: string,
-  avatarUrl?: string
-) {
-  await checkAdminPermission(userId, conversationId);
-  
-  const updateData: any = {};
-  if (name !== undefined) updateData.title = name.trim();
-  if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
-  
-  await conversationRepo().update(conversationId, updateData);
-  
-  const conversation = await conversationRepo().findOneBy({ id: conversationId });
-  const members = await memberRepo().findBy({ conversationId });
-  
-  return {
-    ...conversation,
-    members
-  };
-}
-
-// 2. Quản lý Thành viên
-
-export async function addMembers(
-  userId: string,
-  conversationId: string,
-  memberIds: string[]
-) {
-  await checkAdminPermission(userId, conversationId);
-  
-  const conversation = await conversationRepo().findOneBy({ id: conversationId });
-  if (conversation?.type === 'DIRECT') {
-    throw new Error('Cannot add members to direct conversation');
-  }
-  
-  const settings = await settingsRepo().findOneBy({ conversationId });
-  const maxMembers = settings?.policies?.maxMembers || 100;
-  
-  const existingMembers = await memberRepo().findBy({ conversationId });
-  if (existingMembers.length + memberIds.length > maxMembers) {
-    throw new Error(`Cannot exceed maximum of ${maxMembers} members`);
-  }
-  
-  const uniqueMembers = [...new Set(memberIds)];
-  const existingMemberIds = new Set(existingMembers.map(m => m.userId));
-  const newMemberIds = uniqueMembers.filter(id => !existingMemberIds.has(id));
-  
-  if (newMemberIds.length === 0) {
-    throw new Error('All users are already members');
-  }
-  
-  await memberRepo().save(newMemberIds.map(userId => 
-    memberRepo().create({ conversationId, userId, role: 'MEMBER' })
-  ));
-  
-  return { message: `Added ${newMemberIds.length} members successfully` };
-}
-
-export async function removeMember(
-  userId: string,
-  conversationId: string,
-  memberId: string
-) {
-  const member = await memberRepo().findOneBy({ conversationId, userId });
-  const targetMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
-  
-  if (!member || !targetMember) {
-    throw new Error('Member not found');
-  }
-  
-  // User can remove themselves, or admin/owner can remove others
-  const canRemove = userId === memberId || 
-                   member.role === 'OWNER' || 
-                   (member.role === 'ADMIN' && targetMember.role !== 'OWNER');
-  
-  if (!canRemove) {
-    throw new Error('You cannot remove this member');
-  }
-  
-  // Check if this is the last member
-  const allMembers = await memberRepo().findBy({ conversationId });
-  if (allMembers.length === 1) {
-    throw new Error('Cannot remove the last member. Use disband instead.');
-  }
-  
-  await memberRepo().delete({ conversationId, userId: memberId });
-  
-  return { message: 'Member removed successfully' };
-}
-
-export async function leaveConversation(
-  userId: string,
-  conversationId: string
-) {
-  const member = await checkMembership(userId, conversationId);
-  
-  if (member.role === 'OWNER') {
-    const allMembers = await memberRepo().findBy({ conversationId });
-    if (allMembers.length > 1) {
-      throw new Error('Owner cannot leave group with other members. Transfer ownership first.');
-    }
-  }
-  
-  await memberRepo().delete({ conversationId, userId });
-  
-  return { message: 'Left conversation successfully' };
-}
-
-export async function updateMemberRole(
-  userId: string,
-  conversationId: string,
-  memberId: string,
-  newRole: 'ADMIN' | 'MEMBER'
-) {
-  await checkOwnerPermission(userId, conversationId);
-  
-  if (userId === memberId) {
-    throw new Error('Cannot change your own role');
-  }
-  
-  const targetMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
-  if (!targetMember) {
-    throw new Error('Member not found');
-  }
-  
-  if (targetMember.role === 'OWNER') {
-    throw new Error('Cannot change owner role');
-  }
-  
-  await memberRepo().update({ conversationId, userId: memberId }, { role: newRole });
-  
-  const updatedMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
-  
-  return updatedMember;
-}
-
-export async function updateUserSettings(
-  userId: string,
-  conversationId: string,
-  nickname?: string,
-  isMuted?: boolean
-) {
-  const member = await checkMembership(userId, conversationId);
-  
-  const updateData: any = {};
-  if (nickname !== undefined) updateData.nickname = nickname?.trim();
-  if (isMuted !== undefined) updateData.isMuted = isMuted;
-  
-  await memberRepo().update({ conversationId, userId }, updateData);
-  
-  const updatedMember = await memberRepo().findOneBy({ conversationId, userId });
-  
-  return updatedMember;
-}
-
-// 3. Quản lý Lời mời nhóm
-
-export async function sendInvites(
-  userId: string,
-  conversationId: string,
-  userIds: string[],
-  message?: string,
-  expiresInHours: number = 24
-) {
-  await checkAdminPermission(userId, conversationId);
-  
-  const conversation = await conversationRepo().findOneBy({ id: conversationId });
-  if (conversation?.type === 'DIRECT') {
-    throw new Error('Cannot invite to direct conversation');
-  }
-  
-  const existingMembers = await memberRepo().findBy({ conversationId });
-  const existingMemberIds = new Set(existingMembers.map(m => m.userId));
-  
-  const uniqueUserIds = [...new Set(userIds)];
-  const validUserIds = uniqueUserIds.filter(id => !existingMemberIds.has(id));
-  
-  if (validUserIds.length === 0) {
-    throw new Error('All users are already members');
-  }
-  
-  if (validUserIds.length > 50) {
-    throw new Error('Cannot invite more than 50 users at once');
-  }
-  
-  const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + expiresInHours);
-  
-  const invites = validUserIds.map(targetUserId => 
-    inviteRepo().create({
-      id: uuid(),
-      conversationId,
-      invitedBy: userId,
-      userId: targetUserId,
-      message,
-      expiresAt
-    })
-  );
-  
-  await inviteRepo().save(invites);
-  
-  return {
-    message: `Sent ${invites.length} invites successfully`,
-    invites: invites.map(inv => ({ id: inv.id, userId: inv.userId }))
-  };
-}
-
-export async function getPendingInvites(
-  userId: string,
-  page: number = 1,
-  limit: number = 20,
-  status?: string
-) {
-  const offset = (page - 1) * limit;
-  
-  const qb = inviteRepo()
-    .createQueryBuilder('i')
-    .leftJoin(Conversation, 'c', 'c.id = i.conversation_id')
-    .leftJoin(ConversationMember, 'm', 'm.conversation_id = i.conversation_id AND m.user_id = :userId', { userId })
-    .where('i.user_id = :userId', { userId });
-  
-  if (status) {
-    qb.andWhere('i.status = :status', { status });
-  }
-  
-  const invites = await qb
-    .select(['i.*', 'c.title', 'c.type', 'c.avatar_url'])
-    .orderBy('i.created_at', 'DESC')
-    .limit(limit)
-    .offset(offset)
-    .getRawMany();
-  
-  return {
-    data: invites,
-    meta: {
-      total: invites.length,
-      page,
-      limit,
-      totalPages: Math.ceil(invites.length / limit),
-      hasNext: invites.length >= limit,
-      hasPrev: page > 1
-    }
-  };
-}
-
-export async function acceptInvite(
-  userId: string,
-  conversationId: string,
-  inviteId: string
-) {
-  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId, userId });
-  
-  if (!invite) {
-    throw new Error('Invite not found');
-  }
-  
-  if (invite.status !== 'PENDING') {
-    throw new Error('Invite is no longer pending');
-  }
-  
-  if (invite.expiresAt < new Date()) {
-    throw new Error('Invite has expired');
-  }
-  
-  // Check if user is already a member
-  const existingMember = await memberRepo().findOneBy({ conversationId, userId });
-  if (existingMember) {
-    throw new Error('You are already a member of this conversation');
-  }
-  
-  // Add user as member
-  await memberRepo().save(memberRepo().create({
-    conversationId,
-    userId,
-    role: 'MEMBER'
-  }));
-  
-  // Update invite status
-  await inviteRepo().update(inviteId, { 
-    status: 'ACCEPTED', 
-    respondedAt: new Date() 
-  });
-  
-  return { message: 'Invite accepted successfully' };
-}
-
-export async function rejectInvite(
-  userId: string,
-  conversationId: string,
-  inviteId: string
-) {
-  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId, userId });
-  
-  if (!invite) {
-    throw new Error('Invite not found');
-  }
-  
-  if (invite.status !== 'PENDING') {
-    throw new Error('Invite is no longer pending');
-  }
-  
-  await inviteRepo().update(inviteId, { 
-    status: 'REJECTED', 
-    respondedAt: new Date() 
-  });
-  
-  return { message: 'Invite rejected' };
-}
-
-export async function cancelInvite(
-  userId: string,
-  conversationId: string,
-  inviteId: string
-) {
-  await checkAdminPermission(userId, conversationId);
-  
-  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId });
-  
-  if (!invite) {
-    throw new Error('Invite not found');
-  }
-  
-  if (invite.status !== 'PENDING') {
-    throw new Error('Cannot cancel non-pending invite');
-  }
-  
-  if (invite.invitedBy !== userId) {
-    throw new Error('Only the inviter can cancel this invite');
-  }
-  
-  await inviteRepo().update(inviteId, { status: 'CANCELLED' });
-  
-  return { message: 'Invite cancelled' };
-}
-
-// 4. Quản lý Poll (Bình chọn)
-
-export async function createPoll(
-  userId: string,
-  conversationId: string,
-  pollData: any
-) {
-  await checkMembership(userId, conversationId);
-  
-  const { question, options, allow_multiple, allow_add_option, is_anonymous, expires_in_hours } = pollData;
-  
-  if (!question?.trim()) {
-    throw new Error('Poll question is required');
-  }
-  
-  if (!Array.isArray(options) || options.length < 2 || options.length > 20) {
-    throw new Error('Poll must have between 2 and 20 options');
-  }
-  
-  const pollOptions: PollOption[] = options.map((label: string) => ({
-    id: uuid(),
-    label: label.trim(),
-    votes: 0,
-    createdAt: new Date()
-  }));
-  
-  let expiresAt: Date | undefined;
-  if (expires_in_hours) {
-    expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + expires_in_hours);
-  }
-  
-  const poll = pollRepo().create({
-    id: uuid(),
-    conversationId,
-    createdBy: userId,
-    question: question.trim(),
-    options: pollOptions,
-    allowMultiple: allow_multiple || false,
-    allowAddOption: allow_add_option || false,
-    isAnonymous: is_anonymous || false,
-    expiresAt
-  });
-  
-  await pollRepo().save(poll);
-  
-  return poll;
-}
-
-export async function listPolls(
-  userId: string,
-  conversationId: string,
-  status?: string,
-  page: number = 1,
-  limit: number = 20
-) {
-  await checkMembership(userId, conversationId);
-  
-  const offset = (page - 1) * limit;
-  
-  const qb = pollRepo()
-    .createQueryBuilder('p')
-    .where('p.conversation_id = :conversationId', { conversationId });
-  
-  if (status) {
-    qb.andWhere('p.status = :status', { status });
-  }
-  
-  const polls = await qb
-    .orderBy('p.created_at', 'DESC')
-    .limit(limit)
-    .offset(offset)
-    .getMany();
-  
-  // Get vote counts for each poll
-  const pollIds = polls.map(p => p.id);
-  const votes = await voteRepo()
-    .createQueryBuilder('v')
-    .where('v.poll_id IN (:...ids)', { ids: pollIds })
-    .getMany();
-  
-  const voteMap = new Map<string, any[]>();
-  votes.forEach(vote => {
-    if (!voteMap.has(vote.pollId)) voteMap.set(vote.pollId, []);
-    voteMap.get(vote.pollId)!.push(vote);
-  });
-  
-  return {
-    data: polls.map(poll => ({
-      ...poll,
-      totalVotes: voteMap.get(poll.id)?.length || 0,
-      userVote: voteMap.get(poll.id)?.find(v => v.userId === userId)
-    })),
-    meta: {
-      total: polls.length,
-      page,
-      limit,
-      totalPages: Math.ceil(polls.length / limit),
-      hasNext: polls.length >= limit,
-      hasPrev: page > 1
-    }
-  };
-}
-
-export async function getPollDetails(
-  userId: string,
-  conversationId: string,
-  pollId: string
-) {
-  await checkMembership(userId, conversationId);
-  
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  const votes = await voteRepo().findBy({ pollId });
-  const userVote = votes.find(v => v.userId === userId);
-  
-  return {
-    ...poll,
-    totalVotes: votes.length,
-    userVote
-  };
-}
-
-export async function updatePoll(
-  userId: string,
-  conversationId: string,
-  pollId: string,
-  updateData: any
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  if (poll.createdBy !== userId) {
-    throw new Error('Only the poll creator can edit it');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Cannot edit closed poll');
-  }
-  
-  const { question, allow_multiple, allow_add_option, expires_at, edited_option_labels } = updateData;
-  
-  const updates: any = {};
-  if (question !== undefined) updates.question = question.trim();
-  if (allow_multiple !== undefined) updates.allowMultiple = allow_multiple;
-  if (allow_add_option !== undefined) updates.allowAddOption = allow_add_option;
-  if (expires_at !== undefined) updates.expiresAt = new Date(expires_at);
-  
-  // Update option labels if provided
-  if (edited_option_labels && Array.isArray(edited_option_labels)) {
-    const updatedOptions = poll.options.map((option: PollOption) => {
-      const edit = edited_option_labels.find((e: any) => e.id === option.id);
-      if (edit) {
-        return { ...option, label: edit.label.trim() };
-      }
-      return option;
-    });
-    updates.options = updatedOptions;
-  }
-  
-  await pollRepo().update(pollId, updates);
-  
-  const updatedPoll = await pollRepo().findOneBy({ id: pollId });
-  
-  return updatedPoll;
-}
-
-export async function votePoll(
-  userId: string,
-  conversationId: string,
-  pollId: string,
-  optionIds: string[]
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Poll is closed');
-  }
-  
-  if (poll.expiresAt && poll.expiresAt < new Date()) {
-    throw new Error('Poll has expired');
-  }
-  
-  // Validate option IDs
-  const validOptionIds = poll.options.map((o: PollOption) => o.id);
-  const invalidOptionIds = optionIds.filter(id => !validOptionIds.includes(id));
-  
-  if (invalidOptionIds.length > 0) {
-    throw new Error('Invalid option IDs');
-  }
-  
-  if (!poll.allowMultiple && optionIds.length > 1) {
-    throw new Error('This poll does not allow multiple selections');
-  }
-  
-  if (poll.allowMultiple && optionIds.length > 20) {
-    throw new Error('Cannot select more than 20 options');
-  }
-  
-  // Remove existing vote
-  await voteRepo().delete({ pollId, userId });
-  
-  // Add new vote
-  await voteRepo().save(voteRepo().create({
-    id: uuid(),
-    pollId,
-    userId,
-    optionIds
-  }));
-  
-  // Update option vote counts
-  const votes = await voteRepo().findBy({ pollId });
-  const voteCounts = new Map<string, number>();
-  
-  votes.forEach(vote => {
-    vote.optionIds.forEach(optionId => {
-      voteCounts.set(optionId, (voteCounts.get(optionId) || 0) + 1);
-    });
-  });
-  
-  const updatedOptions = poll.options.map((option: PollOption) => ({
-    ...option,
-    votes: voteCounts.get(option.id) || 0
-  }));
-  
-  await pollRepo().update(pollId, { options: updatedOptions });
-  
-  return { message: 'Vote recorded successfully' };
-}
-
-export async function withdrawVote(
-  userId: string,
-  conversationId: string,
-  pollId: string
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Cannot withdraw vote from closed poll');
-  }
-  
-  await voteRepo().delete({ pollId, userId });
-  
-  // Update option vote counts
-  const votes = await voteRepo().findBy({ pollId });
-  const voteCounts = new Map<string, number>();
-  
-  votes.forEach(vote => {
-    vote.optionIds.forEach(optionId => {
-      voteCounts.set(optionId, (voteCounts.get(optionId) || 0) + 1);
-    });
-  });
-  
-  const updatedOptions = poll.options.map((option: PollOption) => ({
-    ...option,
-    votes: voteCounts.get(option.id) || 0
-  }));
-  
-  await pollRepo().update(pollId, { options: updatedOptions });
-  
-  return { message: 'Vote withdrawn successfully' };
-}
-
-export async function addPollOption(
-  userId: string,
-  conversationId: string,
-  pollId: string,
-  label: string
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  if (poll.createdBy !== userId) {
-    throw new Error('Only the poll creator can add options');
-  }
-  
-  if (!poll.allowAddOption) {
-    throw new Error('This poll does not allow adding options');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Cannot add options to closed poll');
-  }
-  
-  if (poll.options.length >= 20) {
-    throw new Error('Poll cannot have more than 20 options');
-  }
-  
-  const newOption: PollOption = {
-    id: uuid(),
-    label: label.trim(),
-    votes: 0,
-    createdAt: new Date()
-  };
-  
-  const updatedOptions = [...poll.options, newOption];
-  await pollRepo().update(pollId, { options: updatedOptions });
-  
-  return { message: 'Option added successfully', option: newOption };
-}
-
-export async function removePollOption(
-  userId: string,
-  conversationId: string,
-  pollId: string,
-  optionId: string
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  if (poll.createdBy !== userId) {
-    throw new Error('Only the poll creator can remove options');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Cannot remove options from closed poll');
-  }
-  
-  const option = poll.options.find((o: PollOption) => o.id === optionId);
-  if (!option) {
-    throw new Error('Option not found');
-  }
-  
-  if (option.votes > 0) {
-    throw new Error('Cannot remove option that has votes');
-  }
-  
-  const updatedOptions = poll.options.filter((o: PollOption) => o.id !== optionId);
-  await pollRepo().update(pollId, { options: updatedOptions });
-  
-  return { message: 'Option removed successfully' };
-}
-
-export async function closePoll(
-  userId: string,
-  conversationId: string,
-  pollId: string
-) {
-  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
-  if (!poll) {
-    throw new Error('Poll not found');
-  }
-  
-  const member = await checkMembership(userId, conversationId);
-  const canClose = poll.createdBy === userId || 
-                  member.role === 'OWNER' || 
-                  member.role === 'ADMIN';
-  
-  if (!canClose) {
-    throw new Error('You do not have permission to close this poll');
-  }
-  
-  if (poll.status !== 'OPEN') {
-    throw new Error('Poll is already closed');
-  }
-  
-  await pollRepo().update(pollId, { 
-    status: 'CLOSED', 
-    closedAt: new Date(), 
-    closedBy: userId 
-  });
-  
-  const updatedPoll = await pollRepo().findOneBy({ id: pollId });
-  
-  return updatedPoll;
-}
-
-// 5. Quản lý Call (Cuộc gọi)
-
-export async function getIceServers() {
-  // Mock ICE servers - in production, configure with real TURN/STUN servers
-  return {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-  };
-}
-
-export async function getCallHistory(
-  userId: string,
-  conversationId: string,
-  page: number = 1,
-  limit: number = 20
-) {
-  await checkMembership(userId, conversationId);
-  
-  const offset = (page - 1) * limit;
-  
-  const calls = await callRepo()
-    .createQueryBuilder('c')
-    .where('c.conversation_id = :conversationId', { conversationId })
-    .orderBy('c.started_at', 'DESC')
-    .limit(limit)
-    .offset(offset)
-    .getMany();
-  
-  return {
-    data: calls,
-    meta: {
-      total: calls.length,
-      page,
-      limit,
-      totalPages: Math.ceil(calls.length / limit),
-      hasNext: calls.length >= limit,
-      hasPrev: page > 1
-    }
-  };
-}
-
-export async function getCallState(
-  userId: string,
-  conversationId: string
-) {
-  await checkMembership(userId, conversationId);
-  
-  const activeCall = await callRepo()
-    .createQueryBuilder('c')
-    .where('c.conversation_id = :conversationId', { conversationId })
-    .andWhere('c.status = :status', { status: 'ONGOING' })
-    .getOne();
-  
-  if (!activeCall) {
-    throw new Error('No active call found');
-  }
-  
-  return activeCall;
-}
-
-export async function endCall(
-  userId: string,
-  conversationId: string,
-  callId: string,
-  reason?: string
-) {
-  const call = await callRepo().findOneBy({ id: callId, conversationId });
-  if (!call) {
-    throw new Error('Call not found');
-  }
-  
-  if (call.status !== 'ONGOING') {
-    throw new Error('Call is not ongoing');
-  }
-  
-  const member = await checkMembership(userId, conversationId);
-  const canEnd = call.startedBy === userId || 
-                 member.role === 'OWNER' || 
-                 member.role === 'ADMIN';
-  
-  if (!canEnd) {
-    throw new Error('You do not have permission to end this call');
-  }
-  
-  const endedAt = new Date();
-  await callRepo().update(callId, {
-    status: 'ENDED',
-    endedAt,
-    endedBy: userId,
-    endReason: reason
-  });
-  
-  const updatedCall = await callRepo().findOneBy({ id: callId });
-  
-  return updatedCall;
-}
-
-// 6. Các chức năng khác
-
-export async function markAsRead(
-  userId: string,
-  conversationId: string
-) {
-  const member = await checkMembership(userId, conversationId);
-  
-  await memberRepo().update({ conversationId, userId }, { 
-    lastReadAt: new Date() 
-  });
-  
-  return { message: 'Conversation marked as read' };
-}
-
-export async function pinConversation(
-  userId: string,
-  conversationId: string
-) {
-  await checkMembership(userId, conversationId);
-  
-  const existing = await pinnedRepo().findOneBy({ userId, conversationId });
-  if (existing) {
-    throw new Error('Conversation is already pinned');
-  }
-  
-  await pinnedRepo().save(pinnedRepo().create({
-    userId,
-    conversationId,
-    pinnedAt: new Date()
-  }));
-  
-  return { message: 'Conversation pinned' };
-}
-
-export async function unpinConversation(
-  userId: string,
-  conversationId: string
-) {
-  await checkMembership(userId, conversationId);
-  
-  const existing = await pinnedRepo().findOneBy({ userId, conversationId });
-  if (!existing) {
-    throw new Error('Conversation is not pinned');
-  }
-  
-  await pinnedRepo().delete({ userId, conversationId });
-  
-  return { message: 'Conversation unpinned' };
-}
-
-export async function updateGroupSettings(
-  userId: string,
-  conversationId: string,
-  permissions?: ConversationPermissions,
-  policies?: ConversationPolicies,
-  features?: ConversationFeatures
-) {
-  await checkOwnerPermission(userId, conversationId);
-  
-  const existing = await settingsRepo().findOneBy({ conversationId });
-  
-  const updateData: any = {};
-  if (permissions !== undefined) updateData.permissions = permissions;
-  if (policies !== undefined) updateData.policies = policies;
-  if (features !== undefined) updateData.features = features;
-  
-  if (existing) {
-    await settingsRepo().update({ conversationId }, updateData);
-  } else {
-    await settingsRepo().save(settingsRepo().create({
-      conversationId,
-      ...updateData
-    }));
-  }
-  
-  const updated = await settingsRepo().findOneBy({ conversationId });
-  
-  return updated;
-}
-
-export async function disbandGroup(
-  userId: string,
-  conversationId: string
-) {
-  await checkOwnerPermission(userId, conversationId);
-  
-  const conversation = await conversationRepo().findOneBy({ id: conversationId });
-  if (conversation?.type === 'DIRECT') {
-    throw new Error('Cannot disband direct conversation');
-  }
-  
-  // Remove all members
-  await memberRepo().delete({ conversationId });
-  
-  // Delete conversation
-  await conversationRepo().delete({ id: conversationId });
-  
-  return { message: 'Group disbanded successfully' };
-}
-</file>
-
 <file path="chat-service/tsconfig.json">
 {
   "compilerOptions": {
@@ -4708,6 +3442,2118 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 EXPOSE 3003
 CMD ["node", "dist/main.js"]
+</file>
+
+<file path="chat-service/src/conversations/conversation.service.ts">
+import { v4 as uuid } from 'uuid';
+import { 
+  AppDataSource, 
+  Conversation, 
+  ConversationMember, 
+  Message,
+  ConversationInvite,
+  ConversationPoll,
+  PollVote,
+  ConversationCall,
+  ConversationSettings,
+  UserPinnedConversation,
+  PollOption,
+  CallParticipant,
+  ConversationPermissions,
+  ConversationPolicies,
+  ConversationFeatures
+} from '../db';
+import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
+import { publishConversationCreated } from '../rabbitmq';
+
+// Repository getters
+const conversationRepo = () => AppDataSource.getRepository(Conversation);
+const memberRepo = () => AppDataSource.getRepository(ConversationMember);
+const messageRepo = () => AppDataSource.getRepository(Message);
+const inviteRepo = () => AppDataSource.getRepository(ConversationInvite);
+const pollRepo = () => AppDataSource.getRepository(ConversationPoll);
+const voteRepo = () => AppDataSource.getRepository(PollVote);
+const callRepo = () => AppDataSource.getRepository(ConversationCall);
+const settingsRepo = () => AppDataSource.getRepository(ConversationSettings);
+const pinnedRepo = () => AppDataSource.getRepository(UserPinnedConversation);
+
+// Helper functions
+function buildDirectKey(userId1: string, userId2: string): string {
+  return [userId1, userId2].sort().join(':');
+}
+
+async function checkMembership(userId: string, conversationId: string): Promise<ConversationMember> {
+  const member = await memberRepo().findOneBy({ conversationId, userId });
+  if (!member) {
+    throw new Error('You are not a member of this conversation');
+  }
+  return member;
+}
+
+async function checkAdminPermission(userId: string, conversationId: string): Promise<ConversationMember> {
+  const member = await checkMembership(userId, conversationId);
+  if (member.role !== 'OWNER' && member.role !== 'ADMIN') {
+    throw new Error('Only admin or owner can perform this action');
+  }
+  return member;
+}
+
+async function checkOwnerPermission(userId: string, conversationId: string): Promise<ConversationMember> {
+  const member = await checkMembership(userId, conversationId);
+  if (member.role !== 'OWNER') {
+    throw new Error('Only owner can perform this action');
+  }
+  return member;
+}
+
+// 1. Quản lý Conversation cơ bản
+
+export async function listConversations(userId: string, page: number = 1, limit: number = 20) {
+  const offset = (page - 1) * limit;
+  
+  const conversations = await conversationRepo()
+    .createQueryBuilder('c')
+    .innerJoin(ConversationMember, 'm', 'm.conversation_id = c.id AND m.user_id = :userId', { userId })
+    .leftJoin(UserPinnedConversation, 'p', 'p.conversation_id = c.id AND p.user_id = :userId', { userId })
+    .orderBy('p.pinned_at', 'DESC')
+    .addOrderBy('COALESCE(c.last_message_at, c.updated_at)', 'DESC')
+    .addOrderBy('c.id', 'DESC')
+    .limit(limit)
+    .offset(offset)
+    .getMany();
+  
+  const conversationIds = conversations.map(c => c.id);
+  if (conversationIds.length === 0) {
+    return {
+      data: [],
+      meta: {
+        total: 0,
+        page,
+        limit,
+        totalPages: 0,
+        hasNext: false,
+        hasPrev: page > 1
+      }
+    };
+  }
+  
+  const members = await memberRepo()
+    .createQueryBuilder('m')
+    .where('m.conversation_id IN (:...ids)', { ids: conversationIds })
+    .getMany();
+  
+  const memberMap = new Map<string, any[]>();
+  members.forEach(m => {
+    if (!memberMap.has(m.conversationId)) memberMap.set(m.conversationId, []);
+    const memberData = {
+      userId: m.userId,
+      displayName: null as string | null,
+      role: m.role
+    };
+    memberMap.get(m.conversationId)!.push(memberData);
+  });
+
+  const userIds = members.map(m => m.userId);
+  const userInfoMap = await fetchUsersInfo(userIds);
+  for (const [convId, convMembers] of memberMap) {
+    for (const m of convMembers) {
+      const info = userInfoMap.get(m.userId);
+      if (info) {
+        m.displayName = info.displayName;
+      }
+    }
+  }
+  
+  const pinned = await pinnedRepo()
+    .createQueryBuilder('p')
+    .where('p.conversation_id IN (:...ids) AND p.user_id = :userId', { ids: conversationIds, userId })
+    .getMany();
+  
+  const pinnedSet = new Set(pinned.map(p => p.conversationId));
+  
+  return {
+    data: conversations.map(c => {
+      const members = memberMap.get(c.id) || [];
+      const otherMember = members.find(m => m.userId !== userId);
+      let name = c.title || 'Cuộc trò chuyện';
+      // Chỉ dùng tên user cho DIRECT, giữ nguyên title cho GROUP
+      if (c.type === 'DIRECT' && otherMember?.displayName) {
+        name = otherMember.displayName;
+      }
+      return {
+        ...c,
+        name,
+        members,
+        isPinned: pinnedSet.has(c.id)
+      };
+    }),
+    meta: {
+      total: conversations.length,
+      page,
+      limit,
+      totalPages: Math.ceil(conversations.length / limit),
+      hasNext: conversations.length >= limit,
+      hasPrev: page > 1
+    }
+  };
+}
+
+export async function getConversationById(userId: string, conversationId: string) {
+  await checkMembership(userId, conversationId);
+  
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  if (!conversation) {
+    throw new Error('Conversation not found');
+  }
+  
+  const members = await memberRepo().findBy({ conversationId });
+  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
+  const enrichedMembers = members.map(m => ({
+    userId: m.userId,
+    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+    role: m.role,
+  }));
+  
+  return {
+    ...conversation,
+    members: enrichedMembers,
+  };
+}
+
+export async function createGroupConversation(
+  createdBy: string,
+  name: string,
+  memberIds: string[],
+  avatarUrl?: string,
+  description?: string
+) {
+  const uniqueMembers = [...new Set(memberIds.filter(id => id !== createdBy))];
+  
+  if (!name?.trim()) {
+    throw new Error('Group conversation requires a name');
+  }
+  if (uniqueMembers.length < 2) {
+    throw new Error('Group conversation requires at least 2 other participants');
+  }
+  if (uniqueMembers.length > 100) {
+    throw new Error('Group conversation cannot have more than 100 members');
+  }
+  
+  const conversation = conversationRepo().create({
+    id: uuid(),
+    type: 'GROUP',
+    title: name.trim(),
+    createdBy,
+    avatarUrl,
+    description: description?.trim() || undefined
+  });
+  await conversationRepo().save(conversation);
+  
+  const allMemberIds = [createdBy, ...uniqueMembers];
+  await memberRepo().save(allMemberIds.map(userId => 
+    memberRepo().create({ 
+      conversationId: conversation.id, 
+      userId,
+      role: userId === createdBy ? 'OWNER' : 'MEMBER',
+      joinedAt: new Date()
+    })
+  ));
+  
+  // Initialize default settings
+  await settingsRepo().save(settingsRepo().create({
+    conversationId: conversation.id,
+    permissions: {
+      canAddMembers: true,
+      canRemoveMembers: true,
+      canCreatePolls: true,
+      canStartCall: true,
+      canSendMessage: true
+    },
+    policies: {
+      maxMembers: 100,
+      inviteApproval: false,
+      messageRetention: 30
+    },
+    features: {
+      polls: true,
+      calls: true,
+      fileSharing: true,
+      reactions: true
+    }
+  }));
+  
+  const members = await memberRepo().findBy({ conversationId: conversation.id });
+
+  // Publish conversation.created event
+  await publishConversationCreated({
+    conversationId: conversation.id,
+    type: 'GROUP',
+    createdBy,
+    memberIds: allMemberIds,
+    title: name.trim(),
+  });
+  
+  return {
+    ...conversation,
+    members
+  };
+}
+
+export async function createDirectConversation(
+  createdBy: string,
+  participantId: string
+) {
+  if (participantId === createdBy) {
+    throw new Error('Cannot create conversation with yourself');
+  }
+  
+  const directKey = buildDirectKey(createdBy, participantId);
+  const existing = await conversationRepo().findOneBy({ directKey });
+  
+  if (existing) {
+    const existingMembers = await memberRepo().findBy({ conversationId: existing.id });
+    
+    if (existingMembers.length === 0) {
+      await conversationRepo().delete(existing.id);
+    } else {
+      const userInfoMap = await fetchUsersInfo(existingMembers.map(m => m.userId));
+      const enrichedMembers = existingMembers.map(m => ({
+        userId: m.userId,
+        displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+        role: m.role,
+      }));
+      // Tìm displayName của participant (người kia trong direct conversation)
+      const otherMemberId = existingMembers.find(m => m.userId !== createdBy)?.userId;
+      let name = existing.title || 'Cuộc trò chuyện';
+      if (otherMemberId) {
+        const otherUserInfo = userInfoMap.get(otherMemberId);
+        name = otherUserInfo?.displayName ?? otherUserInfo?.username ?? name;
+      }
+      return {
+        ...existing,
+        name,
+        members: enrichedMembers,
+      };
+    }
+  }
+  
+  const otherUserInfo = await fetchUserInfo(participantId);
+  const title = otherUserInfo?.displayName ?? participantId;
+
+  const conversation = conversationRepo().create({
+    id: uuid(),
+    type: 'DIRECT',
+    createdBy,
+    directKey,
+    title,
+  });
+  await conversationRepo().save(conversation);
+  
+  const memberIds = [createdBy, participantId];
+  
+  for (const userId of memberIds) {
+    const memberEntity = memberRepo().create({ 
+      conversationId: conversation.id, 
+      userId,
+      joinedAt: new Date()
+    });
+    try {
+      await memberRepo().save(memberEntity);
+    } catch (err) {
+      console.error('[createDirectConversation] Error saving member:', userId, err);
+      throw err;
+    }
+  }
+  
+  const members = await memberRepo()
+    .createQueryBuilder('m')
+    .where('m.conversation_id = :convId', { convId: conversation.id })
+    .getMany();
+  const userInfoMap = await fetchUsersInfo(members.map(m => m.userId));
+  const enrichedMembers = members.map(m => ({
+    userId: m.userId,
+    displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+    role: m.role,
+  }));
+
+  // Publish conversation.created event
+  await publishConversationCreated({
+    conversationId: conversation.id,
+    type: 'DIRECT',
+    createdBy,
+    memberIds,
+    title,
+  });
+  
+  return {
+    ...conversation,
+    name: title,
+    members: enrichedMembers,
+  };
+}
+
+export async function updateConversation(
+  userId: string,
+  conversationId: string,
+  name?: string,
+  avatarUrl?: string
+) {
+  await checkAdminPermission(userId, conversationId);
+  
+  const updateData: any = {};
+  if (name !== undefined) updateData.title = name.trim();
+  if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
+  
+  await conversationRepo().update(conversationId, updateData);
+  
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  const members = await memberRepo().findBy({ conversationId });
+  
+  return {
+    ...conversation,
+    members
+  };
+}
+
+// 2. Quản lý Thành viên
+
+export async function addMembers(
+  userId: string,
+  conversationId: string,
+  memberIds: string[]
+) {
+  await checkAdminPermission(userId, conversationId);
+  
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  if (conversation?.type === 'DIRECT') {
+    throw new Error('Cannot add members to direct conversation');
+  }
+  
+  const settings = await settingsRepo().findOneBy({ conversationId });
+  const maxMembers = settings?.policies?.maxMembers || 100;
+  
+  const existingMembers = await memberRepo().findBy({ conversationId });
+  if (existingMembers.length + memberIds.length > maxMembers) {
+    throw new Error(`Cannot exceed maximum of ${maxMembers} members`);
+  }
+  
+  const uniqueMembers = [...new Set(memberIds)];
+  const existingMemberIds = new Set(existingMembers.map(m => m.userId));
+  const newMemberIds = uniqueMembers.filter(id => !existingMemberIds.has(id));
+  
+  if (newMemberIds.length === 0) {
+    throw new Error('All users are already members');
+  }
+  
+  await memberRepo().save(newMemberIds.map(userId => 
+    memberRepo().create({ conversationId, userId, role: 'MEMBER', joinedAt: new Date() })
+  ));
+  
+  return { message: `Added ${newMemberIds.length} members successfully` };
+}
+
+export async function removeMember(
+  userId: string,
+  conversationId: string,
+  memberId: string
+) {
+  const member = await memberRepo().findOneBy({ conversationId, userId });
+  const targetMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
+  
+  if (!member || !targetMember) {
+    throw new Error('Member not found');
+  }
+  
+  // User can remove themselves, or admin/owner can remove others
+  const canRemove = userId === memberId || 
+                   member.role === 'OWNER' || 
+                   (member.role === 'ADMIN' && targetMember.role !== 'OWNER');
+  
+  if (!canRemove) {
+    throw new Error('You cannot remove this member');
+  }
+  
+  // Check if this is the last member
+  const allMembers = await memberRepo().findBy({ conversationId });
+  if (allMembers.length === 1) {
+    throw new Error('Cannot remove the last member. Use disband instead.');
+  }
+  
+  await memberRepo().delete({ conversationId, userId: memberId });
+  
+  return { message: 'Member removed successfully' };
+}
+
+export async function leaveConversation(
+  userId: string,
+  conversationId: string
+) {
+  const member = await checkMembership(userId, conversationId);
+  
+  if (member.role === 'OWNER') {
+    const allMembers = await memberRepo().findBy({ conversationId });
+    if (allMembers.length > 1) {
+      throw new Error('Owner cannot leave group with other members. Transfer ownership first.');
+    }
+  }
+  
+  await memberRepo().delete({ conversationId, userId });
+  
+  return { message: 'Left conversation successfully' };
+}
+
+export async function updateMemberRole(
+  userId: string,
+  conversationId: string,
+  memberId: string,
+  newRole: 'ADMIN' | 'MEMBER'
+) {
+  await checkOwnerPermission(userId, conversationId);
+  
+  if (userId === memberId) {
+    throw new Error('Cannot change your own role');
+  }
+  
+  const targetMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
+  if (!targetMember) {
+    throw new Error('Member not found');
+  }
+  
+  if (targetMember.role === 'OWNER') {
+    throw new Error('Cannot change owner role');
+  }
+  
+  await memberRepo().update({ conversationId, userId: memberId }, { role: newRole });
+  
+  const updatedMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
+  
+  return updatedMember;
+}
+
+export async function updateUserSettings(
+  userId: string,
+  conversationId: string,
+  nickname?: string,
+  isMuted?: boolean
+) {
+  const member = await checkMembership(userId, conversationId);
+  
+  const updateData: any = {};
+  if (nickname !== undefined) updateData.nickname = nickname?.trim();
+  if (isMuted !== undefined) updateData.isMuted = isMuted;
+  
+  await memberRepo().update({ conversationId, userId }, updateData);
+  
+  const updatedMember = await memberRepo().findOneBy({ conversationId, userId });
+  
+  return updatedMember;
+}
+
+// 3. Quản lý Lời mời nhóm
+
+export async function sendInvites(
+  userId: string,
+  conversationId: string,
+  userIds: string[],
+  message?: string,
+  expiresInHours: number = 24
+) {
+  await checkAdminPermission(userId, conversationId);
+  
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  if (conversation?.type === 'DIRECT') {
+    throw new Error('Cannot invite to direct conversation');
+  }
+  
+  const existingMembers = await memberRepo().findBy({ conversationId });
+  const existingMemberIds = new Set(existingMembers.map(m => m.userId));
+  
+  const uniqueUserIds = [...new Set(userIds)];
+  const validUserIds = uniqueUserIds.filter(id => !existingMemberIds.has(id));
+  
+  if (validUserIds.length === 0) {
+    throw new Error('All users are already members');
+  }
+  
+  if (validUserIds.length > 50) {
+    throw new Error('Cannot invite more than 50 users at once');
+  }
+  
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+  
+  const invites = validUserIds.map(targetUserId => 
+    inviteRepo().create({
+      id: uuid(),
+      conversationId,
+      invitedBy: userId,
+      userId: targetUserId,
+      message,
+      expiresAt
+    })
+  );
+  
+  await inviteRepo().save(invites);
+  
+  return {
+    message: `Sent ${invites.length} invites successfully`,
+    invites: invites.map(inv => ({ id: inv.id, userId: inv.userId }))
+  };
+}
+
+export async function getPendingInvites(
+  userId: string,
+  page: number = 1,
+  limit: number = 20,
+  status?: string
+) {
+  const offset = (page - 1) * limit;
+  
+  const qb = inviteRepo()
+    .createQueryBuilder('i')
+    .leftJoin(Conversation, 'c', 'c.id = i.conversation_id')
+    .leftJoin(ConversationMember, 'm', 'm.conversation_id = i.conversation_id AND m.user_id = :userId', { userId })
+    .where('i.user_id = :userId', { userId });
+  
+  if (status) {
+    qb.andWhere('i.status = :status', { status });
+  }
+  
+  const invites = await qb
+    .select(['i.*', 'c.title', 'c.type', 'c.avatar_url'])
+    .orderBy('i.created_at', 'DESC')
+    .limit(limit)
+    .offset(offset)
+    .getRawMany();
+  
+  return {
+    data: invites,
+    meta: {
+      total: invites.length,
+      page,
+      limit,
+      totalPages: Math.ceil(invites.length / limit),
+      hasNext: invites.length >= limit,
+      hasPrev: page > 1
+    }
+  };
+}
+
+export async function acceptInvite(
+  userId: string,
+  conversationId: string,
+  inviteId: string
+) {
+  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId, userId });
+  
+  if (!invite) {
+    throw new Error('Invite not found');
+  }
+  
+  if (invite.status !== 'PENDING') {
+    throw new Error('Invite is no longer pending');
+  }
+  
+  if (invite.expiresAt < new Date()) {
+    throw new Error('Invite has expired');
+  }
+  
+  // Check if user is already a member
+  const existingMember = await memberRepo().findOneBy({ conversationId, userId });
+  if (existingMember) {
+    throw new Error('You are already a member of this conversation');
+  }
+  
+  // Add user as member
+  await memberRepo().save(memberRepo().create({
+    conversationId,
+    userId,
+    role: 'MEMBER',
+    joinedAt: new Date()
+  }));
+  
+  // Update invite status
+  await inviteRepo().update(inviteId, { 
+    status: 'ACCEPTED', 
+    respondedAt: new Date() 
+  });
+  
+  return { message: 'Invite accepted successfully' };
+}
+
+export async function rejectInvite(
+  userId: string,
+  conversationId: string,
+  inviteId: string
+) {
+  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId, userId });
+  
+  if (!invite) {
+    throw new Error('Invite not found');
+  }
+  
+  if (invite.status !== 'PENDING') {
+    throw new Error('Invite is no longer pending');
+  }
+  
+  await inviteRepo().update(inviteId, { 
+    status: 'REJECTED', 
+    respondedAt: new Date() 
+  });
+  
+  return { message: 'Invite rejected' };
+}
+
+export async function cancelInvite(
+  userId: string,
+  conversationId: string,
+  inviteId: string
+) {
+  await checkAdminPermission(userId, conversationId);
+  
+  const invite = await inviteRepo().findOneBy({ id: inviteId, conversationId });
+  
+  if (!invite) {
+    throw new Error('Invite not found');
+  }
+  
+  if (invite.status !== 'PENDING') {
+    throw new Error('Cannot cancel non-pending invite');
+  }
+  
+  if (invite.invitedBy !== userId) {
+    throw new Error('Only the inviter can cancel this invite');
+  }
+  
+  await inviteRepo().update(inviteId, { status: 'CANCELLED' });
+  
+  return { message: 'Invite cancelled' };
+}
+
+// 4. Quản lý Poll (Bình chọn)
+
+export async function createPoll(
+  userId: string,
+  conversationId: string,
+  pollData: any
+) {
+  await checkMembership(userId, conversationId);
+  
+  const { question, options, allow_multiple, allow_add_option, is_anonymous, expires_in_hours } = pollData;
+  
+  if (!question?.trim()) {
+    throw new Error('Poll question is required');
+  }
+  
+  if (!Array.isArray(options) || options.length < 2 || options.length > 20) {
+    throw new Error('Poll must have between 2 and 20 options');
+  }
+  
+  const pollOptions: PollOption[] = options.map((label: string) => ({
+    id: uuid(),
+    label: label.trim(),
+    votes: 0,
+    createdAt: new Date()
+  }));
+  
+  let expiresAt: Date | undefined;
+  if (expires_in_hours) {
+    expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + expires_in_hours);
+  }
+  
+  const poll = pollRepo().create({
+    id: uuid(),
+    conversationId,
+    createdBy: userId,
+    question: question.trim(),
+    options: pollOptions,
+    allowMultiple: allow_multiple || false,
+    allowAddOption: allow_add_option || false,
+    isAnonymous: is_anonymous || false,
+    expiresAt
+  });
+  
+  await pollRepo().save(poll);
+  
+  return poll;
+}
+
+export async function listPolls(
+  userId: string,
+  conversationId: string,
+  status?: string,
+  page: number = 1,
+  limit: number = 20
+) {
+  await checkMembership(userId, conversationId);
+  
+  const offset = (page - 1) * limit;
+  
+  const qb = pollRepo()
+    .createQueryBuilder('p')
+    .where('p.conversation_id = :conversationId', { conversationId });
+  
+  if (status) {
+    qb.andWhere('p.status = :status', { status });
+  }
+  
+  const polls = await qb
+    .orderBy('p.created_at', 'DESC')
+    .limit(limit)
+    .offset(offset)
+    .getMany();
+  
+  // Get vote counts for each poll
+  const pollIds = polls.map(p => p.id);
+  const votes = await voteRepo()
+    .createQueryBuilder('v')
+    .where('v.poll_id IN (:...ids)', { ids: pollIds })
+    .getMany();
+  
+  const voteMap = new Map<string, any[]>();
+  votes.forEach(vote => {
+    if (!voteMap.has(vote.pollId)) voteMap.set(vote.pollId, []);
+    voteMap.get(vote.pollId)!.push(vote);
+  });
+  
+  return {
+    data: polls.map(poll => ({
+      ...poll,
+      totalVotes: voteMap.get(poll.id)?.length || 0,
+      userVote: voteMap.get(poll.id)?.find(v => v.userId === userId)
+    })),
+    meta: {
+      total: polls.length,
+      page,
+      limit,
+      totalPages: Math.ceil(polls.length / limit),
+      hasNext: polls.length >= limit,
+      hasPrev: page > 1
+    }
+  };
+}
+
+export async function getPollDetails(
+  userId: string,
+  conversationId: string,
+  pollId: string
+) {
+  await checkMembership(userId, conversationId);
+  
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  const votes = await voteRepo().findBy({ pollId });
+  const userVote = votes.find(v => v.userId === userId);
+  
+  return {
+    ...poll,
+    totalVotes: votes.length,
+    userVote
+  };
+}
+
+export async function updatePoll(
+  userId: string,
+  conversationId: string,
+  pollId: string,
+  updateData: any
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  if (poll.createdBy !== userId) {
+    throw new Error('Only the poll creator can edit it');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Cannot edit closed poll');
+  }
+  
+  const { question, allow_multiple, allow_add_option, expires_at, edited_option_labels } = updateData;
+  
+  const updates: any = {};
+  if (question !== undefined) updates.question = question.trim();
+  if (allow_multiple !== undefined) updates.allowMultiple = allow_multiple;
+  if (allow_add_option !== undefined) updates.allowAddOption = allow_add_option;
+  if (expires_at !== undefined) updates.expiresAt = new Date(expires_at);
+  
+  // Update option labels if provided
+  if (edited_option_labels && Array.isArray(edited_option_labels)) {
+    const updatedOptions = poll.options.map((option: PollOption) => {
+      const edit = edited_option_labels.find((e: any) => e.id === option.id);
+      if (edit) {
+        return { ...option, label: edit.label.trim() };
+      }
+      return option;
+    });
+    updates.options = updatedOptions;
+  }
+  
+  await pollRepo().update(pollId, updates);
+  
+  const updatedPoll = await pollRepo().findOneBy({ id: pollId });
+  
+  return updatedPoll;
+}
+
+export async function votePoll(
+  userId: string,
+  conversationId: string,
+  pollId: string,
+  optionIds: string[]
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Poll is closed');
+  }
+  
+  if (poll.expiresAt && poll.expiresAt < new Date()) {
+    throw new Error('Poll has expired');
+  }
+  
+  // Validate option IDs
+  const validOptionIds = poll.options.map((o: PollOption) => o.id);
+  const invalidOptionIds = optionIds.filter(id => !validOptionIds.includes(id));
+  
+  if (invalidOptionIds.length > 0) {
+    throw new Error('Invalid option IDs');
+  }
+  
+  if (!poll.allowMultiple && optionIds.length > 1) {
+    throw new Error('This poll does not allow multiple selections');
+  }
+  
+  if (poll.allowMultiple && optionIds.length > 20) {
+    throw new Error('Cannot select more than 20 options');
+  }
+  
+  // Remove existing vote
+  await voteRepo().delete({ pollId, userId });
+  
+  // Add new vote
+  await voteRepo().save(voteRepo().create({
+    id: uuid(),
+    pollId,
+    userId,
+    optionIds
+  }));
+  
+  // Update option vote counts
+  const votes = await voteRepo().findBy({ pollId });
+  const voteCounts = new Map<string, number>();
+  
+  votes.forEach(vote => {
+    vote.optionIds.forEach(optionId => {
+      voteCounts.set(optionId, (voteCounts.get(optionId) || 0) + 1);
+    });
+  });
+  
+  const updatedOptions = poll.options.map((option: PollOption) => ({
+    ...option,
+    votes: voteCounts.get(option.id) || 0
+  }));
+  
+  await pollRepo().update(pollId, { options: updatedOptions });
+  
+  return { message: 'Vote recorded successfully' };
+}
+
+export async function withdrawVote(
+  userId: string,
+  conversationId: string,
+  pollId: string
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Cannot withdraw vote from closed poll');
+  }
+  
+  await voteRepo().delete({ pollId, userId });
+  
+  // Update option vote counts
+  const votes = await voteRepo().findBy({ pollId });
+  const voteCounts = new Map<string, number>();
+  
+  votes.forEach(vote => {
+    vote.optionIds.forEach(optionId => {
+      voteCounts.set(optionId, (voteCounts.get(optionId) || 0) + 1);
+    });
+  });
+  
+  const updatedOptions = poll.options.map((option: PollOption) => ({
+    ...option,
+    votes: voteCounts.get(option.id) || 0
+  }));
+  
+  await pollRepo().update(pollId, { options: updatedOptions });
+  
+  return { message: 'Vote withdrawn successfully' };
+}
+
+export async function addPollOption(
+  userId: string,
+  conversationId: string,
+  pollId: string,
+  label: string
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  if (poll.createdBy !== userId) {
+    throw new Error('Only the poll creator can add options');
+  }
+  
+  if (!poll.allowAddOption) {
+    throw new Error('This poll does not allow adding options');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Cannot add options to closed poll');
+  }
+  
+  if (poll.options.length >= 20) {
+    throw new Error('Poll cannot have more than 20 options');
+  }
+  
+  const newOption: PollOption = {
+    id: uuid(),
+    label: label.trim(),
+    votes: 0,
+    createdAt: new Date()
+  };
+  
+  const updatedOptions = [...poll.options, newOption];
+  await pollRepo().update(pollId, { options: updatedOptions });
+  
+  return { message: 'Option added successfully', option: newOption };
+}
+
+export async function removePollOption(
+  userId: string,
+  conversationId: string,
+  pollId: string,
+  optionId: string
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  if (poll.createdBy !== userId) {
+    throw new Error('Only the poll creator can remove options');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Cannot remove options from closed poll');
+  }
+  
+  const option = poll.options.find((o: PollOption) => o.id === optionId);
+  if (!option) {
+    throw new Error('Option not found');
+  }
+  
+  if (option.votes > 0) {
+    throw new Error('Cannot remove option that has votes');
+  }
+  
+  const updatedOptions = poll.options.filter((o: PollOption) => o.id !== optionId);
+  await pollRepo().update(pollId, { options: updatedOptions });
+  
+  return { message: 'Option removed successfully' };
+}
+
+export async function closePoll(
+  userId: string,
+  conversationId: string,
+  pollId: string
+) {
+  const poll = await pollRepo().findOneBy({ id: pollId, conversationId });
+  if (!poll) {
+    throw new Error('Poll not found');
+  }
+  
+  const member = await checkMembership(userId, conversationId);
+  const canClose = poll.createdBy === userId || 
+                  member.role === 'OWNER' || 
+                  member.role === 'ADMIN';
+  
+  if (!canClose) {
+    throw new Error('You do not have permission to close this poll');
+  }
+  
+  if (poll.status !== 'OPEN') {
+    throw new Error('Poll is already closed');
+  }
+  
+  await pollRepo().update(pollId, { 
+    status: 'CLOSED', 
+    closedAt: new Date(), 
+    closedBy: userId 
+  });
+  
+  const updatedPoll = await pollRepo().findOneBy({ id: pollId });
+  
+  return updatedPoll;
+}
+
+// 5. Quản lý Call (Cuộc gọi)
+
+export async function getIceServers() {
+  // Mock ICE servers - in production, configure with real TURN/STUN servers
+  return {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  };
+}
+
+export async function getCallHistory(
+  userId: string,
+  conversationId: string,
+  page: number = 1,
+  limit: number = 20
+) {
+  await checkMembership(userId, conversationId);
+  
+  const offset = (page - 1) * limit;
+  
+  const calls = await callRepo()
+    .createQueryBuilder('c')
+    .where('c.conversation_id = :conversationId', { conversationId })
+    .orderBy('c.started_at', 'DESC')
+    .limit(limit)
+    .offset(offset)
+    .getMany();
+  
+  return {
+    data: calls,
+    meta: {
+      total: calls.length,
+      page,
+      limit,
+      totalPages: Math.ceil(calls.length / limit),
+      hasNext: calls.length >= limit,
+      hasPrev: page > 1
+    }
+  };
+}
+
+export async function getCallState(
+  userId: string,
+  conversationId: string
+) {
+  await checkMembership(userId, conversationId);
+  
+  const activeCall = await callRepo()
+    .createQueryBuilder('c')
+    .where('c.conversation_id = :conversationId', { conversationId })
+    .andWhere('c.status = :status', { status: 'ONGOING' })
+    .getOne();
+  
+  if (!activeCall) {
+    throw new Error('No active call found');
+  }
+  
+  return activeCall;
+}
+
+export async function endCall(
+  userId: string,
+  conversationId: string,
+  callId: string,
+  reason?: string
+) {
+  const call = await callRepo().findOneBy({ id: callId, conversationId });
+  if (!call) {
+    throw new Error('Call not found');
+  }
+  
+  if (call.status !== 'ONGOING') {
+    throw new Error('Call is not ongoing');
+  }
+  
+  const member = await checkMembership(userId, conversationId);
+  const canEnd = call.startedBy === userId || 
+                 member.role === 'OWNER' || 
+                 member.role === 'ADMIN';
+  
+  if (!canEnd) {
+    throw new Error('You do not have permission to end this call');
+  }
+  
+  const endedAt = new Date();
+  await callRepo().update(callId, {
+    status: 'ENDED',
+    endedAt,
+    endedBy: userId,
+    endReason: reason
+  });
+  
+  const updatedCall = await callRepo().findOneBy({ id: callId });
+  
+  return updatedCall;
+}
+
+// 6. Các chức năng khác
+
+export async function markAsRead(
+  userId: string,
+  conversationId: string
+) {
+  const member = await checkMembership(userId, conversationId);
+  
+  await memberRepo().update({ conversationId, userId }, { 
+    lastReadAt: new Date() 
+  });
+  
+  return { message: 'Conversation marked as read' };
+}
+
+export async function pinConversation(
+  userId: string,
+  conversationId: string
+) {
+  await checkMembership(userId, conversationId);
+  
+  const existing = await pinnedRepo().findOneBy({ userId, conversationId });
+  if (existing) {
+    throw new Error('Conversation is already pinned');
+  }
+  
+  await pinnedRepo().save(pinnedRepo().create({
+    userId,
+    conversationId,
+    pinnedAt: new Date()
+  }));
+  
+  return { message: 'Conversation pinned' };
+}
+
+export async function unpinConversation(
+  userId: string,
+  conversationId: string
+) {
+  await checkMembership(userId, conversationId);
+  
+  const existing = await pinnedRepo().findOneBy({ userId, conversationId });
+  if (!existing) {
+    throw new Error('Conversation is not pinned');
+  }
+  
+  await pinnedRepo().delete({ userId, conversationId });
+  
+  return { message: 'Conversation unpinned' };
+}
+
+export async function updateGroupSettings(
+  userId: string,
+  conversationId: string,
+  permissions?: ConversationPermissions,
+  policies?: ConversationPolicies,
+  features?: ConversationFeatures
+) {
+  await checkOwnerPermission(userId, conversationId);
+  
+  const existing = await settingsRepo().findOneBy({ conversationId });
+  
+  const updateData: any = {};
+  if (permissions !== undefined) updateData.permissions = permissions;
+  if (policies !== undefined) updateData.policies = policies;
+  if (features !== undefined) updateData.features = features;
+  
+  if (existing) {
+    await settingsRepo().update({ conversationId }, updateData);
+  } else {
+    await settingsRepo().save(settingsRepo().create({
+      conversationId,
+      ...updateData
+    }));
+  }
+  
+  const updated = await settingsRepo().findOneBy({ conversationId });
+  
+  return updated;
+}
+
+export async function disbandGroup(
+  userId: string,
+  conversationId: string
+) {
+  await checkOwnerPermission(userId, conversationId);
+  
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  if (conversation?.type === 'DIRECT') {
+    throw new Error('Cannot disband direct conversation');
+  }
+  
+  // Remove all members
+  await memberRepo().delete({ conversationId });
+  
+  // Delete conversation
+  await conversationRepo().delete({ id: conversationId });
+  
+  return { message: 'Group disbanded successfully' };
+}
+</file>
+
+<file path="chat-service/src/messages/message.router.ts">
+import { Router, Response } from 'express';
+import { body, param, query } from 'express-validator';
+import { authenticate, AuthReq, validate } from '../middleware';
+import * as messageService from './message.service';
+
+const router = Router();
+
+router.get(
+  '/:conversationId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('cursor').optional().isString(),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const data = await messageService.listMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.cursor as string | undefined,
+        limit
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.patch(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+    body('content').isString().notEmpty(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.editMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId,
+        req.body.content
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const message = await messageService.getMessageDetail(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data: message });
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/search',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    query('q').optional().isString(),
+    query('senderId').optional().isUUID(),
+    query('from').optional().isInt(),
+    query('to').optional().isInt(),
+    query('fileType').optional().isIn(['images', 'video', 'files']),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.searchMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.q as string | undefined,
+        req.query.senderId as string | undefined,
+        req.query.from ? Number(req.query.from) : undefined,
+        req.query.to ? Number(req.query.to) : undefined,
+        req.query.fileType as string | undefined
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.post(
+  '/forward',
+  authenticate,
+  [
+    body('forward_id').isUUID(),
+    body('source_message_id').isUUID(),
+    body('targets').isArray({ min: 1, max: 20 }),
+    body('targets.*.message_id').optional().isUUID(),
+    body('targets.*.conversation_id').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.forwardMessage(
+        req.userId!,
+        req.body.forward_id,
+        req.body.source_message_id,
+        req.body.targets
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.post(
+  '/:conversationId/:createdAt/:messageId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.pinMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.delete(
+  '/:conversationId/:createdAt/:messageId/pin',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.unpinMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:conversationId/pins',
+  authenticate,
+  [param('conversationId').isUUID(), query('limit').optional().isInt({ min: 1, max: 100 })],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.listPinnedMessages(
+        req.userId!,
+        req.params.conversationId,
+        req.query.limit ? Number(req.query.limit) : 20
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/:messageId/reactions',
+  authenticate,
+  [param('messageId').isUUID()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.getMessageReactions(req.userId!, req.params.messageId);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+router.get(
+  '/v1/messages/lookup/:messageId',
+  [param('messageId').isUUID()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.lookupMessageById(req.params.messageId);
+      if (!data) {
+        res.status(404).json({ message: 'Message not found' });
+        return;
+      }
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.delete(
+  '/:conversationId/:createdAt/:messageId',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.deleteMessage(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+export default router;
+</file>
+
+<file path="realtime-service/src/main/java/chatapp/realtimeservice/service/MessageBroadcastService.java">
+package chatapp.realtimeservice.service;
+
+import chatapp.realtimeservice.dto.ApiResponse;
+import chatapp.realtimeservice.dto.MessageNotificationRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MessageBroadcastService {
+    private static final Logger logger = LoggerFactory.getLogger(MessageBroadcastService.class);
+
+    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final PresenceRepository presenceRepository;
+
+    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate,
+                                   PresenceRepository presenceRepository) {
+        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.presenceRepository = presenceRepository;
+    }
+
+    public ApiResponse<Void> notifyMessageReceived(MessageNotificationRequest notification) {
+        if (notification.receiverId() == null || notification.receiverId().isBlank()) {
+            logger.warn("Receiver ID is empty for message: {}", notification.messageId());
+            return ApiResponse.error("Receiver ID cannot be empty");
+        }
+
+        if (!isUserOnline(notification.receiverId())) {
+            logger.debug("User {} is not online, message {} will be delivered when user comes online", 
+                    notification.receiverId(), notification.messageId());
+        }
+
+        try {
+            simpMessagingTemplate.convertAndSendToUser(
+                    notification.receiverId(),
+                    "/queue/messages",
+                    notification
+            );
+            logger.info("Message {} sent to user {} via WebSocket", notification.messageId(), notification.receiverId());
+            return ApiResponse.ok(null, "Message notification sent successfully");
+        } catch (Exception ex) {
+            logger.error("Failed to send message notification to user {}: {}", 
+                    notification.receiverId(), ex.getMessage(), ex);
+            return ApiResponse.error("Failed to send message notification: " + ex.getMessage());
+        }
+    }
+
+    public void notifyPresenceChange(String userId, boolean online) {
+        String event = online ? "USER_ONLINE" : "USER_OFFLINE";
+        try {
+            simpMessagingTemplate.convertAndSend("/topic/presence-updates", 
+                    new PresenceUpdate(userId, event));
+            logger.info("Broadcast presence event: {} for user {}", event, userId);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast presence change for user {}: {}", userId, ex.getMessage());
+        }
+    }
+
+    private boolean isUserOnline(String userId) {
+        return presenceRepository.isUserOnline(userId);
+    }
+
+    public record PresenceUpdate(String userId, String event) {
+    }
+}
+</file>
+
+<file path="auth-service/src/auth/auth.router.ts">
+import { Router, Request, Response } from 'express';
+import { body } from 'express-validator';
+import { validate, authenticate, AuthReq } from '../middleware';
+import * as authService from './auth.service';
+
+const router = Router();
+
+/**
+ * POST /auth/register
+ * @body username string (min 3)
+ * @body email    string
+ * @body password string (min 6)
+ * @body displayName string
+ * @body dateOfBirth string (optional)
+ * @body gender string (optional)
+ * @body bio string (optional)
+ * @body phone string (optional)
+ */
+router.post('/register',
+  [body('username').trim().isLength({ min: 3 }), body('email').isEmail(), body('password').isLength({ min: 6 }), body('displayName').trim().notEmpty(), body('dateOfBirth').optional(), body('gender').optional(), body('bio').optional(), body('phone').optional()],
+  validate,
+  async (req: Request, res: Response) => {
+    try {
+      const { username, email, password, displayName, dateOfBirth, gender, bio, phone } = req.body;
+      const parsedDateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
+      await authService.register(username, email, password, displayName, parsedDateOfBirth, gender, bio, phone);
+      const loginResult = await authService.login(email, password);
+      res.status(201).json(loginResult);
+    } catch (e: any) { res.status(409).json({ message: e.message }); }
+  }
+);
+
+/**
+ * POST /auth/login
+ * @body email    string
+ * @body password string
+ */
+router.post('/login',
+  [body('email').isEmail(), body('password').notEmpty()],
+  validate,
+  async (req: Request, res: Response) => {
+    try {
+      const result = await authService.login(req.body.email, req.body.password);
+      res.json(result);
+    } catch (e: any) { res.status(401).json({ message: e.message }); }
+  }
+);
+
+/**
+ * POST /auth/refresh
+ * @body refreshToken string
+ */
+router.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) { res.status(400).json({ message: 'refreshToken required' }); return; }
+    res.json(await authService.refresh(refreshToken));
+  } catch (e: any) { res.status(401).json({ message: e.message }); }
+});
+
+/**
+ * POST /auth/change-password
+ * @header Authorization Bearer <accessToken>
+ * @body   oldPassword string
+ * @body   newPassword string (min 6)
+ */
+router.post('/change-password',
+  authenticate,
+  [body('oldPassword').notEmpty(), body('newPassword').isLength({ min: 6 })],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await authService.changePassword(req.userId!, req.body.oldPassword, req.body.newPassword);
+      res.json(result);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  }
+);
+
+/**
+ * POST /auth/logout
+ * @header Authorization Bearer <accessToken>
+ * @body   refreshToken string (optional — omit to revoke all sessions)
+ */
+router.post('/logout', authenticate, async (req: AuthReq, res: Response) => {
+  await authService.logout(req.userId!, req.body.refreshToken);
+  res.json({ message: 'Logged out' });
+});
+
+export default router;
+</file>
+
+<file path="auth-service/src/auth/auth.service.ts">
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { AppDataSource, User, RefreshToken } from '../db';
+import { config } from '../config';
+
+interface JwtPayload {
+  sub: string;
+  email: string;
+}
+
+const MAX_REFRESH_TOKENS = 5;
+
+const userRepo = () => AppDataSource.getRepository(User);
+const tokenRepo = () => AppDataSource.getRepository(RefreshToken);
+
+export async function register(username: string, email: string, password: string, displayName: string, dateOfBirth?: Date, gender?: string, bio?: string, phone?: string) {
+  if (await userRepo().findOneBy({ email })) throw new Error('Email already in use');
+  if (await userRepo().findOneBy({ username })) throw new Error('Username already taken');
+
+  let parsedDateOfBirth: Date | undefined;
+  if (dateOfBirth) {
+    const d = new Date(dateOfBirth);
+    if (!isNaN(d.getTime())) {
+      parsedDateOfBirth = new Date(d.toISOString().split('T')[0]);
+    }
+  }
+
+  const user = userRepo().create({
+    username, 
+    email, 
+    displayName,
+    dateOfBirth: parsedDateOfBirth,
+    gender,
+    bio,
+    phone,
+    passwordHash: await bcrypt.hash(password, 10),
+  });
+  const saved = await userRepo().save(user);
+  const { passwordHash: _, ...pub } = saved;
+  return pub;
+}
+
+export async function login(email: string, password: string) {
+  const user = await userRepo().findOneBy({ email });
+  if (!user || !user.isActive) throw new Error('Invalid credentials');
+  if (!await bcrypt.compare(password, user.passwordHash)) throw new Error('Invalid credentials');
+
+  const payload = { sub: user.id, email: user.email };
+  const accessToken = jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn as any });
+  const refreshToken = jwt.sign(payload, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpiresIn as any });
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+  await tokenRepo().save(tokenRepo().create({ userId: user.id, token: refreshToken, expiresAt }));
+
+  const existing = await tokenRepo().find({ where: { userId: user.id }, order: { createdAt: 'ASC' } });
+  if (existing.length > MAX_REFRESH_TOKENS) {
+    const toDelete = existing.slice(0, existing.length - MAX_REFRESH_TOKENS);
+    await tokenRepo().remove(toDelete);
+  }
+
+  const { passwordHash: _, ...pub } = user;
+  return { accessToken, refreshToken, user: pub };
+}
+
+const parseExpiresIn = (val: string): number => {
+  const match = val.match(/^(\d+)([dhms])$/);
+  if (!match) return 3600;
+  const n = parseInt(match[1]);
+  switch (match[2]) {
+    case 'd': return n * 86400;
+    case 'h': return n * 3600;
+    case 'm': return n * 60;
+    case 's': return n;
+    default: return 3600;
+  }
+};
+
+export async function refresh(refreshToken: string) {
+  const record = await tokenRepo().findOneBy({ token: refreshToken });
+  if (!record || record.expiresAt < new Date()) throw new Error('Invalid or expired refresh token');
+
+  const p = jwt.verify(refreshToken, config.jwt.refreshSecret) as JwtPayload;
+  const expiresIn = parseExpiresIn(config.jwt.expiresIn as string);
+  const accessToken = jwt.sign({ sub: p.sub, email: p.email }, config.jwt.secret, { expiresIn });
+  return { accessToken, expiresIn };
+}
+
+export async function changePassword(userId: string, oldPassword: string, newPassword: string) {
+  const user = await userRepo().findOneBy({ id: userId });
+  if (!user) throw new Error('User not found');
+  if (!await bcrypt.compare(oldPassword, user.passwordHash)) throw new Error('Current password is incorrect');
+  
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  await userRepo().save(user);
+
+  await tokenRepo().delete({ userId });
+  return { message: 'Password changed successfully' };
+}
+
+export async function logout(userId: string, refreshToken?: string) {
+  if (refreshToken) await tokenRepo().delete({ token: refreshToken });
+  else await tokenRepo().delete({ userId });
+}
+</file>
+
+<file path="auth-service/src/db.ts">
+import 'reflect-metadata';
+import { DataSource, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { config } from './config';
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ unique: true }) username!: string;
+  @Column({ unique: true }) email!: string;
+  @Column({ name: 'password_hash' }) passwordHash!: string;
+  @Column({ name: 'display_name' }) displayName!: string;
+  @Column({ name: 'avatar_url', nullable: true }) avatarUrl?: string;
+  @Column({ nullable: true }) bio?: string;
+  @Column({ nullable: true }) gender?: string;
+  @Column({ type: 'date', nullable: true }) dateOfBirth?: Date;
+  @Column({ nullable: true }) phone?: string;
+  @Column({ name: 'is_active', default: true }) isActive!: boolean;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('refresh_tokens')
+export class RefreshToken {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'user_id' }) userId!: string;
+  @Column({ type: 'text' }) token!: string;
+  @Column({ name: 'expires_at' }) expiresAt!: Date;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
+@Entity('friend_requests')
+export class FriendRequest {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'sender_id' }) senderId!: string;
+  @Column({ name: 'receiver_id' }) receiverId!: string;
+  @Column({ name: 'request_message', type: 'text', nullable: true }) requestMessage?: string;
+  @Column({ default: 'pending' }) status!: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('friendships')
+export class Friendship {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'user_id' }) userId!: string;
+  @Column({ name: 'friend_id' }) friendId!: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
+@Entity('blocks')
+export class Block {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column({ name: 'blocker_id' }) blockerId!: string;
+  @Column({ name: 'blocked_id' }) blockedId!: string;
+  @Column({ type: 'text', nullable: true }) reason?: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
+export const AppDataSource = new DataSource({
+  type: 'mariadb',
+  ...config.db,
+  synchronize: process.env.NODE_ENV !== 'production',
+  logging: false,
+  entities: [User, RefreshToken, FriendRequest, Friendship, Block],
+  connectorPackage: 'mysql2',
+  extra: {
+    connectionLimit: 10,
+    acquireTimeout: 60000,
+    timeout: 60000,
+  },
+});
+
+export async function initializeDataSource() {
+  const maxRetries = 10;
+  const retryDelay = 3000;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (!AppDataSource.isInitialized) {
+        await AppDataSource.initialize();
+        console.log('TypeORM connection established successfully');
+      }
+      return;
+    } catch (error) {
+      console.error(`TypeORM connection attempt ${attempt}/${maxRetries} failed:`, error);
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      console.log(`Retrying in ${retryDelay}ms...`);
+      await sleep(retryDelay);
+    }
+  }
+}
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function ensureDatabase() {
+  const { createConnection } = await import('mysql2/promise');
+  const maxRetries = 10;
+  const retryDelay = 3000;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const conn = await createConnection({
+        host: config.db.host,
+        port: config.db.port,
+        user: config.db.username,
+        password: config.db.password,
+        connectTimeout: 10000,
+      });
+      await conn.execute(`CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      await conn.end();
+      console.log('Database connection established successfully');
+      return;
+    } catch (error) {
+      console.error(`Database connection attempt ${attempt}/${maxRetries} failed:`, error);
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      console.log(`Retrying in ${retryDelay}ms...`);
+      await sleep(retryDelay);
+    }
+  }
+}
+</file>
+
+<file path="auth-service/src/user/user.router.ts">
+import { Router, Response } from 'express';
+import { query } from 'express-validator';
+import { authenticate, validate, AuthReq } from '../middleware';
+import * as userService from './user.service';
+
+const router = Router();
+
+/**
+ * GET /users/me
+ * @header Authorization Bearer <accessToken>
+ */
+router.get('/me', authenticate, async (req: AuthReq, res: Response) => {
+  try { res.json(await userService.getById(req.userId!)); }
+  catch (e: any) { res.status(404).json({ message: e.message }); }
+});
+
+/**
+ * GET /users/search
+ * @header Authorization Bearer <accessToken>
+ * @query  q      string (required)
+ * @query  limit  number (default 20, max 100)
+ * @query  offset number (default 0)
+ */
+router.get('/search',
+  authenticate,
+  [query('q').trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 100 }), query('offset').optional().isInt({ min: 0 })],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    
+    const users = await userService.search(
+      req.query.q as string,
+      limit,
+      offset,
+      req.userId,
+    );
+    
+    res.json({
+      success: true,
+      data: users,
+      meta: {
+        total: users.length,
+        page: Math.floor(offset / limit) + 1,
+        limit: limit,
+        totalPages: Math.ceil(users.length / limit)
+      },
+      message: 'Search completed successfully',
+      timestamp: new Date().toISOString()
+    });
+  }
+);
+
+/**
+ * GET /users/:id
+ * @param  id string (uuid)
+ * NOTE: Không cần auth vì chat-service cần fetch user info
+ */
+router.get('/:id', async (req: AuthReq, res: Response) => {
+  try { 
+    const user = await userService.getById(req.params.id); 
+    res.json(user); 
+  }
+  catch (e: any) { 
+    res.status(404).json({ message: e.message }); 
+  }
+});
+
+/**
+ * PUT /users/me
+ * @header Authorization Bearer <accessToken>
+ * @body displayName?, bio?, avatarUrl?, dateOfBirth?, gender?, email?
+ */
+router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
+  try {
+    const updatedUser = await userService.updateById(req.userId!, req.body);
+    res.json({
+      success: true,
+      data: updatedUser,
+      message: 'Profile updated successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (e: any) { 
+    res.status(400).json({ 
+      success: false,
+      message: e.message,
+      timestamp: new Date().toISOString()
+    }); 
+  }
+});
+
+export default router;
+</file>
+
+<file path="auth-service/src/user/user.service.ts">
+import { AppDataSource, User, Friendship, FriendRequest } from '../db';
+
+const userRepo = () => AppDataSource.getRepository(User);
+const friendshipRepo = () => AppDataSource.getRepository(Friendship);
+const friendReqRepo = () => AppDataSource.getRepository(FriendRequest);
+
+const strip = ({ passwordHash: _, ...u }: User) => u;
+
+export async function getById(id: string) {
+  const user = await userRepo().findOneBy({ id });
+  if (!user) throw new Error('User not found');
+  return strip(user);
+}
+
+export async function search(q: string, limit = 20, offset = 0, currentUserId?: string) {
+  const users = await userRepo()
+    .createQueryBuilder('u')
+    .where('u.display_name LIKE :q AND u.isActive = true', { q: `%${q}%` })
+    .limit(limit).offset(offset)
+    .getMany();
+
+  if (!currentUserId) return users.map(strip);
+
+  const friendIds = (await friendshipRepo().find({
+    where: [{ userId: currentUserId }, { friendId: currentUserId }],
+  })).flatMap(f => [f.userId === currentUserId ? f.friendId : f.userId]);
+
+  const friendSet = new Set(friendIds);
+
+  const pendingReqs = await friendReqRepo().find({
+    where: [
+      { senderId: currentUserId, status: 'pending' },
+      { receiverId: currentUserId, status: 'pending' },
+    ],
+  });
+  const sentPending = new Set(pendingReqs.filter(r => r.senderId === currentUserId).map(r => r.receiverId));
+  const recvPending = new Set(pendingReqs.filter(r => r.receiverId === currentUserId).map(r => r.senderId));
+
+  return users.map(u => {
+    const user = strip(u);
+    let friendshipStatus: string = 'none';
+    if (friendSet.has(u.id)) friendshipStatus = 'friend';
+    else if (sentPending.has(u.id)) friendshipStatus = 'outgoing';
+    else if (recvPending.has(u.id)) friendshipStatus = 'incoming';
+    return { ...user, friendshipStatus };
+  });
+}
+
+export async function updateById(id: string, updates: Partial<User>) {
+  // Chỉ update các trường được cung cấp
+  // Cho phép avatarUrl null để xóa avatar
+  
+  // Xử lý dateOfBirth: nếu là string, chuyển thành Date
+  const processedUpdates = { ...updates };
+  if (updates.dateOfBirth && typeof updates.dateOfBirth === 'string') {
+    processedUpdates.dateOfBirth = new Date(updates.dateOfBirth);
+  }
+  
+  await userRepo().update(id, processedUpdates);
+  return await getById(id);
+}
+</file>
+
+<file path="chat-service/.env.example">
+PORT=3003
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASS=root
+DB_NAME=chat_service
+DB_CONNECT_RETRY_ATTEMPTS=20
+DB_CONNECT_RETRY_DELAY_MS=3000
+
+RABBITMQ_URL=amqp://guest:guest@localhost:5672
+RABBITMQ_EXCHANGE=chat.events
+RABBITMQ_ROUTING_KEY_NEW_MESSAGE=chat.new_message
+
+# Realtime-service integration
+# URL của realtime-service (Spring Boot). Để trống nếu chưa chạy realtime-service.
+REALTIME_SERVICE_URL=http://localhost:8080
+# Shared secret cho inter-service communication (phải khớp với INTERNAL_API_KEY của realtime-service)
+INTERNAL_API_KEY=dev-internal-key-change-me
 </file>
 
 <file path="chat-service/src/chat/chat.router.ts">
@@ -5712,272 +6558,6 @@ router.post('/:conversationId/disband',
 export default router;
 </file>
 
-<file path="chat-service/src/messages/message.router.ts">
-import { Router, Response } from 'express';
-import { body, param, query } from 'express-validator';
-import { authenticate, AuthReq, validate } from '../middleware';
-import * as messageService from './message.service';
-
-const router = Router();
-
-router.get(
-  '/:conversationId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('cursor').optional().isString(),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const limit = req.query.limit ? Number(req.query.limit) : 50;
-      const data = await messageService.listMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.cursor as string | undefined,
-        limit
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.patch(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-    body('content').isString().notEmpty(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.editMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId,
-        req.body.content
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const message = await messageService.getMessageDetail(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data: message });
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/search',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    query('q').optional().isString(),
-    query('senderId').optional().isUUID(),
-    query('from').optional().isInt(),
-    query('to').optional().isInt(),
-    query('fileType').optional().isIn(['images', 'video', 'files']),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.searchMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.q as string | undefined,
-        req.query.senderId as string | undefined,
-        req.query.from ? Number(req.query.from) : undefined,
-        req.query.to ? Number(req.query.to) : undefined,
-        req.query.fileType as string | undefined
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.post(
-  '/forward',
-  authenticate,
-  [
-    body('forward_id').isUUID(),
-    body('source_message_id').isUUID(),
-    body('targets').isArray({ min: 1, max: 20 }),
-    body('targets.*.message_id').optional().isUUID(),
-    body('targets.*.conversation_id').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.forwardMessage(
-        req.userId!,
-        req.body.forward_id,
-        req.body.source_message_id,
-        req.body.targets
-      );
-      res.status(201).json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.post(
-  '/:conversationId/:createdAt/:messageId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.pinMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.delete(
-  '/:conversationId/:createdAt/:messageId/pin',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.unpinMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:conversationId/pins',
-  authenticate,
-  [param('conversationId').isUUID(), query('limit').optional().isInt({ min: 1, max: 100 })],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.listPinnedMessages(
-        req.userId!,
-        req.params.conversationId,
-        req.query.limit ? Number(req.query.limit) : 20
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/:messageId/reactions',
-  authenticate,
-  [param('messageId').isUUID()],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.getMessageReactions(req.userId!, req.params.messageId);
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(404).json({ message: e.message });
-    }
-  }
-);
-
-router.get(
-  '/v1/messages/lookup/:messageId',
-  [param('messageId').isUUID()],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.lookupMessageById(req.params.messageId);
-      if (!data) {
-        res.status(404).json({ message: 'Message not found' });
-        return;
-      }
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-router.delete(
-  '/:conversationId/:createdAt/:messageId',
-  authenticate,
-  [
-    param('conversationId').isUUID(),
-    param('createdAt').isInt(),
-    param('messageId').isUUID(),
-  ],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const data = await messageService.deleteMessage(
-        req.userId!,
-        req.params.conversationId,
-        Number(req.params.createdAt),
-        req.params.messageId
-      );
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ message: e.message });
-    }
-  }
-);
-
-export default router;
-</file>
-
 <file path="chat-service/src/messages/message.service.ts">
 import { v4 as uuid } from 'uuid';
 import {
@@ -6439,581 +7019,237 @@ export async function deleteMessage(
 }
 </file>
 
-<file path="realtime-service/src/main/java/chatapp/realtimeservice/service/MessageBroadcastService.java">
-package chatapp.realtimeservice.service;
-
-import chatapp.realtimeservice.dto.ApiResponse;
-import chatapp.realtimeservice.dto.MessageNotificationRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Service;
-
-@Service
-public class MessageBroadcastService {
-    private static final Logger logger = LoggerFactory.getLogger(MessageBroadcastService.class);
-
-    private final SimpMessagingTemplate simpMessagingTemplate;
-    private final PresenceRepository presenceRepository;
-
-    public MessageBroadcastService(SimpMessagingTemplate simpMessagingTemplate,
-                                   PresenceRepository presenceRepository) {
-        this.simpMessagingTemplate = simpMessagingTemplate;
-        this.presenceRepository = presenceRepository;
-    }
-
-    public ApiResponse<Void> notifyMessageReceived(MessageNotificationRequest notification) {
-        if (notification.receiverId() == null || notification.receiverId().isBlank()) {
-            logger.warn("Receiver ID is empty for message: {}", notification.messageId());
-            return ApiResponse.error("Receiver ID cannot be empty");
-        }
-
-        if (!isUserOnline(notification.receiverId())) {
-            logger.debug("User {} is not online, message {} will be delivered when user comes online", 
-                    notification.receiverId(), notification.messageId());
-        }
-
-        try {
-            simpMessagingTemplate.convertAndSendToUser(
-                    notification.receiverId(),
-                    "/queue/messages",
-                    notification
-            );
-            logger.info("Message {} sent to user {} via WebSocket", notification.messageId(), notification.receiverId());
-            return ApiResponse.ok(null, "Message notification sent successfully");
-        } catch (Exception ex) {
-            logger.error("Failed to send message notification to user {}: {}", 
-                    notification.receiverId(), ex.getMessage(), ex);
-            return ApiResponse.error("Failed to send message notification: " + ex.getMessage());
-        }
-    }
-
-    public void notifyPresenceChange(String userId, boolean online) {
-        String event = online ? "USER_ONLINE" : "USER_OFFLINE";
-        try {
-            simpMessagingTemplate.convertAndSend("/topic/presence-updates", 
-                    new PresenceUpdate(userId, event));
-            logger.info("Broadcast presence event: {} for user {}", event, userId);
-        } catch (Exception ex) {
-            logger.warn("Failed to broadcast presence change for user {}: {}", userId, ex.getMessage());
-        }
-    }
-
-    private boolean isUserOnline(String userId) {
-        return presenceRepository.isUserOnline(userId);
-    }
-
-    public record PresenceUpdate(String userId, String event) {
-    }
-}
-</file>
-
-<file path="auth-service/src/auth/auth.router.ts">
-import { Router, Request, Response } from 'express';
-import { body } from 'express-validator';
-import { validate, authenticate, AuthReq } from '../middleware';
-import * as authService from './auth.service';
-
-const router = Router();
-
-/**
- * POST /auth/register
- * @body username string (min 3)
- * @body email    string
- * @body password string (min 6)
- * @body displayName string
- * @body dateOfBirth string (optional)
- * @body gender string (optional)
- * @body bio string (optional)
- * @body phone string (optional)
- */
-router.post('/register',
-  [body('username').trim().isLength({ min: 3 }), body('email').isEmail(), body('password').isLength({ min: 6 }), body('displayName').trim().notEmpty(), body('dateOfBirth').optional(), body('gender').optional(), body('bio').optional(), body('phone').optional()],
-  validate,
-  async (req: Request, res: Response) => {
-    try {
-      const { username, email, password, displayName, dateOfBirth, gender, bio, phone } = req.body;
-      const parsedDateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
-      await authService.register(username, email, password, displayName, parsedDateOfBirth, gender, bio, phone);
-      const loginResult = await authService.login(email, password);
-      res.status(201).json(loginResult);
-    } catch (e: any) { res.status(409).json({ message: e.message }); }
-  }
-);
-
-/**
- * POST /auth/login
- * @body email    string
- * @body password string
- */
-router.post('/login',
-  [body('email').isEmail(), body('password').notEmpty()],
-  validate,
-  async (req: Request, res: Response) => {
-    try {
-      const result = await authService.login(req.body.email, req.body.password);
-      res.json(result);
-    } catch (e: any) { res.status(401).json({ message: e.message }); }
-  }
-);
-
-/**
- * POST /auth/refresh
- * @body refreshToken string
- */
-router.post('/refresh', async (req: Request, res: Response) => {
-  try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) { res.status(400).json({ message: 'refreshToken required' }); return; }
-    res.json(await authService.refresh(refreshToken));
-  } catch (e: any) { res.status(401).json({ message: e.message }); }
-});
-
-/**
- * POST /auth/change-password
- * @header Authorization Bearer <accessToken>
- * @body   oldPassword string
- * @body   newPassword string (min 6)
- */
-router.post('/change-password',
-  authenticate,
-  [body('oldPassword').notEmpty(), body('newPassword').isLength({ min: 6 })],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const result = await authService.changePassword(req.userId!, req.body.oldPassword, req.body.newPassword);
-      res.json(result);
-    } catch (e: any) { res.status(400).json({ message: e.message }); }
-  }
-);
-
-/**
- * POST /auth/logout
- * @header Authorization Bearer <accessToken>
- * @body   refreshToken string (optional — omit to revoke all sessions)
- */
-router.post('/logout', authenticate, async (req: AuthReq, res: Response) => {
-  await authService.logout(req.userId!, req.body.refreshToken);
-  res.json({ message: 'Logged out' });
-});
-
-export default router;
-</file>
-
-<file path="auth-service/src/auth/auth.service.ts">
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { AppDataSource, User, RefreshToken } from '../db';
-import { config } from '../config';
-
-interface JwtPayload {
-  sub: string;
-  email: string;
-}
-
-const MAX_REFRESH_TOKENS = 5;
-
-const userRepo = () => AppDataSource.getRepository(User);
-const tokenRepo = () => AppDataSource.getRepository(RefreshToken);
-
-export async function register(username: string, email: string, password: string, displayName: string, dateOfBirth?: Date, gender?: string, bio?: string, phone?: string) {
-  if (await userRepo().findOneBy({ email })) throw new Error('Email already in use');
-  if (await userRepo().findOneBy({ username })) throw new Error('Username already taken');
-
-  let parsedDateOfBirth: Date | undefined;
-  if (dateOfBirth) {
-    const d = new Date(dateOfBirth);
-    if (!isNaN(d.getTime())) {
-      parsedDateOfBirth = new Date(d.toISOString().split('T')[0]);
-    }
-  }
-
-  const user = userRepo().create({
-    username, 
-    email, 
-    displayName,
-    dateOfBirth: parsedDateOfBirth,
-    gender,
-    bio,
-    phone,
-    passwordHash: await bcrypt.hash(password, 10),
-  });
-  const saved = await userRepo().save(user);
-  const { passwordHash: _, ...pub } = saved;
-  return pub;
-}
-
-export async function login(email: string, password: string) {
-  const user = await userRepo().findOneBy({ email });
-  if (!user || !user.isActive) throw new Error('Invalid credentials');
-  if (!await bcrypt.compare(password, user.passwordHash)) throw new Error('Invalid credentials');
-
-  const payload = { sub: user.id, email: user.email };
-  const accessToken = jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn as any });
-  const refreshToken = jwt.sign(payload, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpiresIn as any });
-
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
-  await tokenRepo().save(tokenRepo().create({ userId: user.id, token: refreshToken, expiresAt }));
-
-  const existing = await tokenRepo().find({ where: { userId: user.id }, order: { createdAt: 'ASC' } });
-  if (existing.length > MAX_REFRESH_TOKENS) {
-    const toDelete = existing.slice(0, existing.length - MAX_REFRESH_TOKENS);
-    await tokenRepo().remove(toDelete);
-  }
-
-  const { passwordHash: _, ...pub } = user;
-  return { accessToken, refreshToken, user: pub };
-}
-
-const parseExpiresIn = (val: string): number => {
-  const match = val.match(/^(\d+)([dhms])$/);
-  if (!match) return 3600;
-  const n = parseInt(match[1]);
-  switch (match[2]) {
-    case 'd': return n * 86400;
-    case 'h': return n * 3600;
-    case 'm': return n * 60;
-    case 's': return n;
-    default: return 3600;
-  }
-};
-
-export async function refresh(refreshToken: string) {
-  const record = await tokenRepo().findOneBy({ token: refreshToken });
-  if (!record || record.expiresAt < new Date()) throw new Error('Invalid or expired refresh token');
-
-  const p = jwt.verify(refreshToken, config.jwt.refreshSecret) as JwtPayload;
-  const expiresIn = parseExpiresIn(config.jwt.expiresIn as string);
-  const accessToken = jwt.sign({ sub: p.sub, email: p.email }, config.jwt.secret, { expiresIn });
-  return { accessToken, expiresIn };
-}
-
-export async function changePassword(userId: string, oldPassword: string, newPassword: string) {
-  const user = await userRepo().findOneBy({ id: userId });
-  if (!user) throw new Error('User not found');
-  if (!await bcrypt.compare(oldPassword, user.passwordHash)) throw new Error('Current password is incorrect');
-  
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
-  await userRepo().save(user);
-
-  await tokenRepo().delete({ userId });
-  return { message: 'Password changed successfully' };
-}
-
-export async function logout(userId: string, refreshToken?: string) {
-  if (refreshToken) await tokenRepo().delete({ token: refreshToken });
-  else await tokenRepo().delete({ userId });
-}
-</file>
-
-<file path="auth-service/src/db.ts">
-import 'reflect-metadata';
-import { DataSource, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+<file path="api-gateway/src/main.ts">
+import express from 'express';
+import { createServer } from 'http';
+import cors from 'cors';
 import { config } from './config';
+import { authenticate } from './middleware';
+import { proxy } from './proxy';
+import multer from 'multer';
+import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
 
-@Entity('users')
-export class User {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ unique: true }) username!: string;
-  @Column({ unique: true }) email!: string;
-  @Column({ name: 'password_hash' }) passwordHash!: string;
-  @Column({ name: 'display_name' }) displayName!: string;
-  @Column({ name: 'avatar_url', nullable: true }) avatarUrl?: string;
-  @Column({ nullable: true }) bio?: string;
-  @Column({ nullable: true }) gender?: string;
-  @Column({ type: 'date', nullable: true }) dateOfBirth?: Date;
-  @Column({ nullable: true }) phone?: string;
-  @Column({ name: 'is_active', default: true }) isActive!: boolean;
-  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
-}
-
-@Entity('refresh_tokens')
-export class RefreshToken {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'user_id' }) userId!: string;
-  @Column({ type: 'text' }) token!: string;
-  @Column({ name: 'expires_at' }) expiresAt!: Date;
-  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
-}
-
-@Entity('friend_requests')
-export class FriendRequest {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'sender_id' }) senderId!: string;
-  @Column({ name: 'receiver_id' }) receiverId!: string;
-  @Column({ name: 'request_message', type: 'text', nullable: true }) requestMessage?: string;
-  @Column({ default: 'pending' }) status!: 'pending' | 'accepted' | 'rejected' | 'cancelled';
-  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
-  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
-}
-
-@Entity('friendships')
-export class Friendship {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'user_id' }) userId!: string;
-  @Column({ name: 'friend_id' }) friendId!: string;
-  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
-}
-
-@Entity('blocks')
-export class Block {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column({ name: 'blocker_id' }) blockerId!: string;
-  @Column({ name: 'blocked_id' }) blockedId!: string;
-  @Column({ type: 'text', nullable: true }) reason?: string;
-  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
-}
-
-export const AppDataSource = new DataSource({
-  type: 'mariadb',
-  ...config.db,
-  synchronize: process.env.NODE_ENV !== 'production',
-  logging: false,
-  entities: [User, RefreshToken, FriendRequest, Friendship, Block],
-  connectorPackage: 'mysql2',
-  extra: {
-    connectionLimit: 10,
-    acquireTimeout: 60000,
-    timeout: 60000,
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
   },
 });
 
-export async function initializeDataSource() {
-  const maxRetries = 10;
-  const retryDelay = 3000;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      if (!AppDataSource.isInitialized) {
-        await AppDataSource.initialize();
-        console.log('TypeORM connection established successfully');
-      }
-      return;
-    } catch (error) {
-      console.error(`TypeORM connection attempt ${attempt}/${maxRetries} failed:`, error);
-      if (attempt === maxRetries) {
-        throw error;
-      }
-      console.log(`Retrying in ${retryDelay}ms...`);
-      await sleep(retryDelay);
-    }
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+
+// Auth routes (public)
+app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
+app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
+app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
+app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
+app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
+
+// User routes (protected)
+app.get('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
+app.put('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
+app.get('/api/users/search', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/search`));
+app.get('/api/users/:id', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/${req.params.id}`));
+
+// 1. Quản lý Conversation cơ bản
+
+// 1.1 Lấy danh sách conversations
+app.get('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
+
+// 1.2 Lấy conversation theo ID
+app.get('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
+
+// 1.3 Tạo conversation nhóm
+app.post('/api/conversations/group', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/group`, true));
+
+// 1.4 Tạo conversation trực tiếp
+app.post('/api/conversations/direct', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/direct`, true));
+
+// 1.5 Cập nhật conversation
+app.patch('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
+
+// Keep old routes for backward compatibility
+app.post('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
+
+// 2. Quản lý Thành viên
+
+// 2.1 Thêm thành viên
+app.post('/api/conversations/:conversationId/members', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members`, true));
+
+// 2.2 Xóa thành viên
+app.delete('/api/conversations/:conversationId/members/:memberId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}`, true));
+
+// 2.3 Rời conversation
+app.post('/api/conversations/:conversationId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/leave`, true));
+
+// 2.4 Cập nhật vai trò thành viên
+app.patch('/api/conversations/:conversationId/members/:memberId/role', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}/role`, true));
+
+// 2.5 Cập nhật cài đặt cá nhân
+app.patch('/api/conversations/:conversationId/settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/settings`, true));
+
+// 3. Quản lý Lời mời nhóm
+
+// 3.1 Gửi lời mời
+app.post('/api/conversations/:conversationId/invites', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites`, true));
+
+// 3.2 Lấy lời mời đang chờ
+app.get('/api/conversations/invites/pending', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/invites/pending`, true));
+
+// 3.3 Chấp nhận lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/accept', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/accept`, true));
+
+// 3.4 Từ chối lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/reject', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/reject`, true));
+
+// 3.5 Hủy lời mời
+app.post('/api/conversations/:conversationId/invites/:inviteId/cancel', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/cancel`, true));
+
+// 4. Quản lý Poll (Bình chọn)
+
+// 4.1 Tạo poll
+app.post('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
+
+// 4.2 Lấy danh sách polls
+app.get('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
+
+// 4.3 Chi tiết poll
+app.get('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
+
+// 4.4 Chỉnh sửa poll
+app.patch('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
+
+// 4.5 Bình chọn
+app.post('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
+
+// 4.6 Thu hồi bình chọn
+app.delete('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
+
+// 4.7 Thêm lựa chọn
+app.post('/api/conversations/:conversationId/polls/:pollId/options', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options`, true));
+
+// 4.8 Xóa lựa chọn
+app.delete('/api/conversations/:conversationId/polls/:pollId/options/:optionId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options/${req.params.optionId}`, true));
+
+// 4.9 Đóng poll
+app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/close`, true));
+
+// 5. Quản lý Call (Cuộc gọi)
+
+// 5.1 Lấy ICE servers
+app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
+
+// 5.2 Lịch sử cuộc gọi
+app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
+
+// 5.3 Trạng thái cuộc gọi
+app.get('/api/conversations/:conversationId/call-state', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/call-state`, true));
+
+// 5.4 Kết thúc cuộc gọi
+app.post('/api/conversations/:conversationId/calls/:callId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/end`, true));
+
+// 6. Các chức năng khác
+
+// 6.1 Đánh dấu đã đọc
+app.post('/api/conversations/:conversationId/read', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/read`, true));
+
+// 6.2 Ghim conversation
+app.post('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
+
+// 6.3 Bỏ ghim conversation
+app.delete('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
+
+// 6.4 Cập nhật cài đặt nhóm
+app.patch('/api/conversations/:conversationId/group-settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-settings`, true));
+
+// 6.5 Giải tán nhóm
+app.post('/api/conversations/:conversationId/disband', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/disband`, true));
+
+// Message routes (backward compatibility)
+app.get('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
+app.post('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
+
+// 7. Message management routes
+app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
+app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
+app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
+app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
+app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
+app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
+app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/pins`, true));
+app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
+app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
+
+// Friend routes (protected)
+app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
+app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
+app.get('/api/friends/requests/sent', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/sent`));
+app.post('/api/friends/requests', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests`));
+app.put('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
+app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
+app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+
+// Media upload routes (protected)
+app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
+
+// Internal callback for chat-service to push real-time notifications
+app.post('/api/internal/message-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
   }
-}
-
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-export async function ensureDatabase() {
-  const { createConnection } = await import('mysql2/promise');
-  const maxRetries = 10;
-  const retryDelay = 3000;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const conn = await createConnection({
-        host: config.db.host,
-        port: config.db.port,
-        user: config.db.username,
-        password: config.db.password,
-        connectTimeout: 10000,
-      });
-      await conn.execute(`CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-      await conn.end();
-      console.log('Database connection established successfully');
-      return;
-    } catch (error) {
-      console.error(`Database connection attempt ${attempt}/${maxRetries} failed:`, error);
-      if (attempt === maxRetries) {
-        throw error;
-      }
-      console.log(`Retrying in ${retryDelay}ms...`);
-      await sleep(retryDelay);
-    }
+  const { conversationId, message } = req.body;
+  if (conversationId && message) {
+    notifyConversation(conversationId, message);
   }
-}
-</file>
-
-<file path="auth-service/src/user/user.router.ts">
-import { Router, Response } from 'express';
-import { query } from 'express-validator';
-import { authenticate, validate, AuthReq } from '../middleware';
-import * as userService from './user.service';
-
-const router = Router();
-
-/**
- * GET /users/me
- * @header Authorization Bearer <accessToken>
- */
-router.get('/me', authenticate, async (req: AuthReq, res: Response) => {
-  try { res.json(await userService.getById(req.userId!)); }
-  catch (e: any) { res.status(404).json({ message: e.message }); }
+  res.json({ ok: true });
 });
 
-/**
- * GET /users/search
- * @header Authorization Bearer <accessToken>
- * @query  q      string (required)
- * @query  limit  number (default 20, max 100)
- * @query  offset number (default 0)
- */
-router.get('/search',
-  authenticate,
-  [query('q').trim().notEmpty(), query('limit').optional().isInt({ min: 1, max: 100 }), query('offset').optional().isInt({ min: 0 })],
-  validate,
-  async (req: AuthReq, res: Response) => {
-    const limit = req.query.limit ? Number(req.query.limit) : 20;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    
-    const users = await userService.search(
-      req.query.q as string,
-      limit,
-      offset,
-      req.userId,
-    );
-    
-    res.json({
-      success: true,
-      data: users,
-      meta: {
-        total: users.length,
-        page: Math.floor(offset / limit) + 1,
-        limit: limit,
-        totalPages: Math.ceil(users.length / limit)
-      },
-      message: 'Search completed successfully',
-      timestamp: new Date().toISOString()
-    });
+// Internal callback for new conversation created
+app.post('/api/internal/conversation-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
   }
-);
-
-/**
- * GET /users/:id
- * @param  id string (uuid)
- * NOTE: Không cần auth vì chat-service cần fetch user info
- */
-router.get('/:id', async (req: AuthReq, res: Response) => {
-  try { 
-    const user = await userService.getById(req.params.id); 
-    res.json(user); 
+  const { conversation } = req.body;
+  if (conversation) {
+    notifyNewConversation(conversation);
   }
-  catch (e: any) { 
-    res.status(404).json({ message: e.message }); 
-  }
+  res.json({ ok: true });
 });
 
-/**
- * PUT /users/me
- * @header Authorization Bearer <accessToken>
- * @body displayName?, bio?, avatarUrl?, dateOfBirth?, gender?, email?
- */
-router.put('/me', authenticate, async (req: AuthReq, res: Response) => {
-  try {
-    const updatedUser = await userService.updateById(req.userId!, req.body);
-    res.json({
-      success: true,
-      data: updatedUser,
-      message: 'Profile updated successfully',
-      timestamp: new Date().toISOString()
-    });
-  } catch (e: any) { 
-    res.status(400).json({ 
-      success: false,
-      message: e.message,
-      timestamp: new Date().toISOString()
-    }); 
+// Internal callback for message read event
+app.post('/api/internal/message-read-callback', (req, res) => {
+  const apiKey = req.headers['x-internal-api-key'];
+  if (!apiKey || apiKey !== config.internalApiKey) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
   }
+  const { conversationId, userId, messageId } = req.body;
+  if (conversationId && userId && messageId) {
+    notifyMessageRead(conversationId, userId, messageId);
+  }
+  res.json({ ok: true });
 });
 
-export default router;
-</file>
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/api/presence/online', authenticate, (_, res) => {
+  res.json({ success: true, data: getOnlineUserIds() });
+});
 
-<file path="auth-service/src/user/user.service.ts">
-import { AppDataSource, User, Friendship, FriendRequest } from '../db';
+const httpServer = createServer(app);
+setupSocketIO(httpServer);
 
-const userRepo = () => AppDataSource.getRepository(User);
-const friendshipRepo = () => AppDataSource.getRepository(Friendship);
-const friendReqRepo = () => AppDataSource.getRepository(FriendRequest);
-
-const strip = ({ passwordHash: _, ...u }: User) => u;
-
-export async function getById(id: string) {
-  const user = await userRepo().findOneBy({ id });
-  if (!user) throw new Error('User not found');
-  return strip(user);
-}
-
-export async function search(q: string, limit = 20, offset = 0, currentUserId?: string) {
-  const users = await userRepo()
-    .createQueryBuilder('u')
-    .where('u.display_name LIKE :q AND u.isActive = true', { q: `%${q}%` })
-    .limit(limit).offset(offset)
-    .getMany();
-
-  if (!currentUserId) return users.map(strip);
-
-  const friendIds = (await friendshipRepo().find({
-    where: [{ userId: currentUserId }, { friendId: currentUserId }],
-  })).flatMap(f => [f.userId === currentUserId ? f.friendId : f.userId]);
-
-  const friendSet = new Set(friendIds);
-
-  const pendingReqs = await friendReqRepo().find({
-    where: [
-      { senderId: currentUserId, status: 'pending' },
-      { receiverId: currentUserId, status: 'pending' },
-    ],
-  });
-  const sentPending = new Set(pendingReqs.filter(r => r.senderId === currentUserId).map(r => r.receiverId));
-  const recvPending = new Set(pendingReqs.filter(r => r.receiverId === currentUserId).map(r => r.senderId));
-
-  return users.map(u => {
-    const user = strip(u);
-    let friendshipStatus: string = 'none';
-    if (friendSet.has(u.id)) friendshipStatus = 'friend';
-    else if (sentPending.has(u.id)) friendshipStatus = 'outgoing';
-    else if (recvPending.has(u.id)) friendshipStatus = 'incoming';
-    return { ...user, friendshipStatus };
-  });
-}
-
-export async function updateById(id: string, updates: Partial<User>) {
-  // Chỉ update các trường được cung cấp
-  // Cho phép avatarUrl null để xóa avatar
-  
-  // Xử lý dateOfBirth: nếu là string, chuyển thành Date
-  const processedUpdates = { ...updates };
-  if (updates.dateOfBirth && typeof updates.dateOfBirth === 'string') {
-    processedUpdates.dateOfBirth = new Date(updates.dateOfBirth);
-  }
-  
-  await userRepo().update(id, processedUpdates);
-  return await getById(id);
-}
-</file>
-
-<file path="chat-service/.env.example">
-PORT=3003
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASS=root
-DB_NAME=chat_service
-DB_CONNECT_RETRY_ATTEMPTS=20
-DB_CONNECT_RETRY_DELAY_MS=3000
-
-RABBITMQ_URL=amqp://guest:guest@localhost:5672
-RABBITMQ_EXCHANGE=chat.events
-RABBITMQ_ROUTING_KEY_NEW_MESSAGE=chat.new_message
-
-# Realtime-service integration
-# URL của realtime-service (Spring Boot). Để trống nếu chưa chạy realtime-service.
-REALTIME_SERVICE_URL=http://localhost:8080
-# Shared secret cho inter-service communication (phải khớp với INTERNAL_API_KEY của realtime-service)
-INTERNAL_API_KEY=dev-internal-key-change-me
+httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
 </file>
 
 <file path="chat-service/src/db.ts">
@@ -7047,7 +7283,7 @@ export class ConversationMember {
   @Column('varchar', { length: 100, name: 'nickname', nullable: true }) nickname?: string;
   @Column('boolean', { name: 'is_muted', default: false }) isMuted!: boolean;
   @Column('datetime', { name: 'last_read_at', nullable: true }) lastReadAt?: Date;
-  @Column('datetime', { name: 'joined_at' }) joinedAt!: Date;
+  @Column('datetime', { name: 'joined_at', default: () => 'CURRENT_TIMESTAMP' }) joinedAt!: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }
@@ -7293,275 +7529,6 @@ export async function ensureDatabase() {
 }
 </file>
 
-<file path="api-gateway/src/main.ts">
-import express from 'express';
-import { createServer } from 'http';
-import cors from 'cors';
-import { config } from './config';
-import { authenticate } from './middleware';
-import { proxy } from './proxy';
-import multer from 'multer';
-import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
-
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-});
-
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
-// Auth routes (public)
-app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
-app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
-app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
-app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
-app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
-
-// User routes (protected)
-app.get('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
-app.put('/api/users/me', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/me`));
-app.get('/api/users/search', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/search`));
-app.get('/api/users/:id', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/users/${req.params.id}`));
-
-// 1. Quản lý Conversation cơ bản
-
-// 1.1 Lấy danh sách conversations
-app.get('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
-
-// 1.2 Lấy conversation theo ID
-app.get('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
-
-// 1.3 Tạo conversation nhóm
-app.post('/api/conversations/group', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/group`, true));
-
-// 1.4 Tạo conversation trực tiếp
-app.post('/api/conversations/direct', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/direct`, true));
-
-// 1.5 Cập nhật conversation
-app.patch('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
-
-// Keep old routes for backward compatibility
-app.post('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
-
-// 2. Quản lý Thành viên
-
-// 2.1 Thêm thành viên
-app.post('/api/conversations/:conversationId/members', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members`, true));
-
-// 2.2 Xóa thành viên
-app.delete('/api/conversations/:conversationId/members/:memberId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}`, true));
-
-// 2.3 Rời conversation
-app.post('/api/conversations/:conversationId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/leave`, true));
-
-// 2.4 Cập nhật vai trò thành viên
-app.patch('/api/conversations/:conversationId/members/:memberId/role', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}/role`, true));
-
-// 2.5 Cập nhật cài đặt cá nhân
-app.patch('/api/conversations/:conversationId/settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/settings`, true));
-
-// 3. Quản lý Lời mời nhóm
-
-// 3.1 Gửi lời mời
-app.post('/api/conversations/:conversationId/invites', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites`, true));
-
-// 3.2 Lấy lời mời đang chờ
-app.get('/api/conversations/invites/pending', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/invites/pending`, true));
-
-// 3.3 Chấp nhận lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/accept', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/accept`, true));
-
-// 3.4 Từ chối lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/reject', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/reject`, true));
-
-// 3.5 Hủy lời mời
-app.post('/api/conversations/:conversationId/invites/:inviteId/cancel', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/invites/${req.params.inviteId}/cancel`, true));
-
-// 4. Quản lý Poll (Bình chọn)
-
-// 4.1 Tạo poll
-app.post('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
-
-// 4.2 Lấy danh sách polls
-app.get('/api/conversations/:conversationId/polls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls`, true));
-
-// 4.3 Chi tiết poll
-app.get('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
-
-// 4.4 Chỉnh sửa poll
-app.patch('/api/conversations/:conversationId/polls/:pollId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}`, true));
-
-// 4.5 Bình chọn
-app.post('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
-
-// 4.6 Thu hồi bình chọn
-app.delete('/api/conversations/:conversationId/polls/:pollId/vote', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/vote`, true));
-
-// 4.7 Thêm lựa chọn
-app.post('/api/conversations/:conversationId/polls/:pollId/options', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options`, true));
-
-// 4.8 Xóa lựa chọn
-app.delete('/api/conversations/:conversationId/polls/:pollId/options/:optionId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/options/${req.params.optionId}`, true));
-
-// 4.9 Đóng poll
-app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/close`, true));
-
-// 5. Quản lý Call (Cuộc gọi)
-
-// 5.1 Lấy ICE servers
-app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
-
-// 5.2 Lịch sử cuộc gọi
-app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
-
-// 5.3 Trạng thái cuộc gọi
-app.get('/api/conversations/:conversationId/call-state', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/call-state`, true));
-
-// 5.4 Kết thúc cuộc gọi
-app.post('/api/conversations/:conversationId/calls/:callId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/end`, true));
-
-// 6. Các chức năng khác
-
-// 6.1 Đánh dấu đã đọc
-app.post('/api/conversations/:conversationId/read', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/read`, true));
-
-// 6.2 Ghim conversation
-app.post('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
-
-// 6.3 Bỏ ghim conversation
-app.delete('/api/conversations/:conversationId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/pin`, true));
-
-// 6.4 Cập nhật cài đặt nhóm
-app.patch('/api/conversations/:conversationId/group-settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-settings`, true));
-
-// 6.5 Giải tán nhóm
-app.post('/api/conversations/:conversationId/disband', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/disband`, true));
-
-// Message routes (backward compatibility)
-app.get('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
-app.post('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
-
-// 7. Message management routes
-app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
-app.get('/api/messages/:conversationId/search', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/search`, true));
-app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
-app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
-app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
-app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/pins`, true));
-app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
-app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
-
-// Friend routes (protected)
-app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
-app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
-app.get('/api/friends/requests/sent', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/sent`));
-app.post('/api/friends/requests', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests`));
-app.put('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
-app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/${req.params.requestId}`));
-app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
-app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
-app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
-
-// Media upload routes (protected)
-app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
-
-// Internal callback for chat-service to push real-time notifications
-app.post('/api/internal/message-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, message } = req.body;
-  if (conversationId && message) {
-    notifyConversation(conversationId, message);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for new conversation created
-app.post('/api/internal/conversation-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversation } = req.body;
-  if (conversation) {
-    notifyNewConversation(conversation);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for message read event
-app.post('/api/internal/message-read-callback', (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, userId, messageId } = req.body;
-  if (conversationId && userId && messageId) {
-    notifyMessageRead(conversationId, userId, messageId);
-  }
-  res.json({ ok: true });
-});
-
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
-app.get('/api/presence/online', authenticate, (_, res) => {
-  res.json({ success: true, data: getOnlineUserIds() });
-});
-
-const httpServer = createServer(app);
-setupSocketIO(httpServer);
-
-httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
-</file>
-
-<file path="chat-service/package.json">
-{
-  "name": "chat-service",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "ts-node-dev --respawn src/main.ts",
-    "build": "tsc",
-    "start": "node dist/main.js"
-  },
-  "dependencies": {
-    "@types/multer": "^2.1.0",
-    "amqplib": "^0.10.5",
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-validator": "^7.1.0",
-    "multer": "^2.1.1",
-    "mysql2": "^3.9.7",
-    "redis": "^4.6.13",
-    "reflect-metadata": "^0.2.2",
-    "typeorm": "^0.3.20",
-    "uuid": "^9.0.1"
-  },
-  "devDependencies": {
-    "@types/amqplib": "^0.10.6",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.12.7",
-    "@types/uuid": "^9.0.8",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.3"
-  }
-}
-</file>
-
 <file path="chat-service/src/main.ts">
 import 'reflect-metadata';
 import express from 'express';
@@ -7728,6 +7695,235 @@ logging.level.org.springframework.web=${LOG_LEVEL_SPRING:DEBUG}
 logging.level.org.springframework.messaging=${LOG_LEVEL_SPRING:DEBUG}
 </file>
 
+<file path="chat-service/package.json">
+{
+  "name": "chat-service",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@types/multer": "^2.1.0",
+    "amqplib": "^0.10.5",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-validator": "^7.1.0",
+    "multer": "^2.1.1",
+    "mysql2": "^3.9.7",
+    "redis": "^4.6.13",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.20",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.7",
+    "@types/uuid": "^9.0.8",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  }
+}
+</file>
+
+<file path="chat-service/src/config.ts">
+import 'dotenv/config';
+
+export const config = {
+  port: Number(process.env.PORT) || 3003,
+  db: {
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    username: process.env.DB_USER || 'root',
+    password: process.env.DB_PASS || '',
+    database: process.env.DB_NAME || 'chat_service',
+    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
+    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    authSwitchHandler: () => {},
+  },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
+    exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
+    routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
+  },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
+  },
+  realtimeService: {
+    url: process.env.REALTIME_SERVICE_URL || '',
+    internalApiKey: process.env.INTERNAL_API_KEY || '',
+  },
+  authService: {
+    url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
+  },
+};
+</file>
+
+<file path="chat-service/src/rabbitmq.ts">
+import amqp from 'amqplib';
+import { config } from './config';
+
+let connection: amqp.ChannelModel | null = null;
+let channel: amqp.Channel | null = null;
+let rabbitConnected = false;
+let rabbitLastError: string | null = null;
+
+const EXCHANGE_NAME = config.rabbitmq.exchange;
+
+export async function connectRabbitMQ(): Promise<void> {
+  try {
+    connection = await amqp.connect(config.rabbitmq.url);
+    channel = await connection.createChannel();
+
+    // Declare the exchange
+    await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
+
+    rabbitConnected = true;
+    rabbitLastError = null;
+    console.log('RabbitMQ connected successfully');
+
+    connection.connection.on('error', (err: Error) => {
+      rabbitConnected = false;
+      rabbitLastError = err?.message || 'RabbitMQ connection error';
+      console.error('RabbitMQ connection error:', err.message);
+    });
+
+    connection.connection.on('close', () => {
+      rabbitConnected = false;
+      console.log('RabbitMQ connection closed');
+    });
+  } catch (error: any) {
+    rabbitConnected = false;
+    rabbitLastError = error?.message || 'Unknown RabbitMQ error';
+    console.error('Failed to connect to RabbitMQ:', error?.message);
+    // Don't throw - keep service boot resilient
+  }
+}
+
+export async function closeRabbitMQ(): Promise<void> {
+  try {
+    if (channel) {
+      await channel.close();
+      channel = null;
+    }
+    if (connection) {
+      await connection.close();
+      connection = null;
+    }
+    rabbitConnected = false;
+    console.log('RabbitMQ closed');
+  } catch (error) {
+    console.error('Error closing RabbitMQ:', error);
+  }
+}
+
+export function getRabbitMQStatus() {
+  return {
+    connected: rabbitConnected,
+    lastError: rabbitLastError,
+  };
+}
+
+// Event publishing functions
+export async function publishEvent(routingKey: string, payload: any): Promise<boolean> {
+  if (!channel || !rabbitConnected) {
+    console.warn('RabbitMQ not connected, skipping event publish:', routingKey);
+    return false;
+  }
+
+  try {
+    const message = Buffer.from(JSON.stringify(payload));
+    return channel.publish(EXCHANGE_NAME, routingKey, message, { persistent: true });
+  } catch (error) {
+    console.error('Failed to publish event:', routingKey, error);
+    return false;
+  }
+}
+
+// Event types and publishers
+export interface ChatEvent {
+  event: string;
+  timestamp: string;
+  data: any;
+}
+
+export async function publishNewMessage(payload: {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  contentType: string;
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.sent',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent('chat.message.sent', event);
+}
+
+export async function publishConversationCreated(payload: {
+  conversationId: string;
+  type: 'DIRECT' | 'GROUP';
+  createdBy: string;
+  memberIds: string[];
+  title?: string;
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'conversation.created',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent('chat.conversation.created', event);
+}
+
+export async function publishMessageRead(payload: {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  readAt: string;
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.read',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent('chat.message.read', event);
+}
+
+export async function publishUserOnline(payload: {
+  userId: string;
+  online: boolean;
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'user.online',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent('chat.user.online', event);
+}
+
+export async function publishTyping(payload: {
+  conversationId: string;
+  userId: string;
+  isTyping: boolean;
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: payload.isTyping ? 'typing.start' : 'typing.stop',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent(`chat.typing.${payload.isTyping ? 'start' : 'stop'}`, event);
+}
+</file>
+
 <file path="chat-service/src/chat/chat.service.ts">
 import { v4 as uuid } from 'uuid';
 import { AppDataSource, Conversation, ConversationMember, Message, MessageAttachment, User } from '../db';
@@ -7780,7 +7976,7 @@ export async function createConversation(
     
     const memberIds = [currentUserId, otherUserId];
     await memberRepo().save(memberIds.map(userId => 
-      memberRepo().create({ conversationId: conversation.id, userId })
+      memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
     ));
     
     return { ...conversation, memberIds };
@@ -7804,7 +8000,7 @@ export async function createConversation(
   
   const memberIds = [currentUserId, ...uniqueParticipants];
   await memberRepo().save(memberIds.map(userId => 
-    memberRepo().create({ conversationId: conversation.id, userId })
+    memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
   ));
   
   return { ...conversation, memberIds };
@@ -8073,199 +8269,6 @@ export async function uploadMedia(userId: string, file: any) {
   } catch (error: any) {
     throw new Error(`Upload failed: ${error.message}`);
   }
-}
-</file>
-
-<file path="chat-service/src/config.ts">
-import 'dotenv/config';
-
-export const config = {
-  port: Number(process.env.PORT) || 3003,
-  db: {
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
-    username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASS || '',
-    database: process.env.DB_NAME || 'chat_service',
-    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
-    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
-    authSwitchHandler: () => {},
-  },
-  rabbitmq: {
-    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
-    exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
-    routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
-  },
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: Number(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || '',
-  },
-  realtimeService: {
-    url: process.env.REALTIME_SERVICE_URL || '',
-    internalApiKey: process.env.INTERNAL_API_KEY || '',
-  },
-  authService: {
-    url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
-  },
-};
-</file>
-
-<file path="chat-service/src/rabbitmq.ts">
-import amqp from 'amqplib';
-import { config } from './config';
-
-let connection: amqp.ChannelModel | null = null;
-let channel: amqp.Channel | null = null;
-let rabbitConnected = false;
-let rabbitLastError: string | null = null;
-
-const EXCHANGE_NAME = config.rabbitmq.exchange;
-
-export async function connectRabbitMQ(): Promise<void> {
-  try {
-    connection = await amqp.connect(config.rabbitmq.url);
-    channel = await connection.createChannel();
-
-    // Declare the exchange
-    await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
-
-    rabbitConnected = true;
-    rabbitLastError = null;
-    console.log('RabbitMQ connected successfully');
-
-    connection.connection.on('error', (err: Error) => {
-      rabbitConnected = false;
-      rabbitLastError = err?.message || 'RabbitMQ connection error';
-      console.error('RabbitMQ connection error:', err.message);
-    });
-
-    connection.connection.on('close', () => {
-      rabbitConnected = false;
-      console.log('RabbitMQ connection closed');
-    });
-  } catch (error: any) {
-    rabbitConnected = false;
-    rabbitLastError = error?.message || 'Unknown RabbitMQ error';
-    console.error('Failed to connect to RabbitMQ:', error?.message);
-    // Don't throw - keep service boot resilient
-  }
-}
-
-export async function closeRabbitMQ(): Promise<void> {
-  try {
-    if (channel) {
-      await channel.close();
-      channel = null;
-    }
-    if (connection) {
-      await connection.close();
-      connection = null;
-    }
-    rabbitConnected = false;
-    console.log('RabbitMQ closed');
-  } catch (error) {
-    console.error('Error closing RabbitMQ:', error);
-  }
-}
-
-export function getRabbitMQStatus() {
-  return {
-    connected: rabbitConnected,
-    lastError: rabbitLastError,
-  };
-}
-
-// Event publishing functions
-export async function publishEvent(routingKey: string, payload: any): Promise<boolean> {
-  if (!channel || !rabbitConnected) {
-    console.warn('RabbitMQ not connected, skipping event publish:', routingKey);
-    return false;
-  }
-
-  try {
-    const message = Buffer.from(JSON.stringify(payload));
-    return channel.publish(EXCHANGE_NAME, routingKey, message, { persistent: true });
-  } catch (error) {
-    console.error('Failed to publish event:', routingKey, error);
-    return false;
-  }
-}
-
-// Event types and publishers
-export interface ChatEvent {
-  event: string;
-  timestamp: string;
-  data: any;
-}
-
-export async function publishNewMessage(payload: {
-  messageId: string;
-  conversationId: string;
-  senderId: string;
-  content: string;
-  contentType: string;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: 'message.sent',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent('chat.message.sent', event);
-}
-
-export async function publishConversationCreated(payload: {
-  conversationId: string;
-  type: 'DIRECT' | 'GROUP';
-  createdBy: string;
-  memberIds: string[];
-  title?: string;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: 'conversation.created',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent('chat.conversation.created', event);
-}
-
-export async function publishMessageRead(payload: {
-  messageId: string;
-  conversationId: string;
-  userId: string;
-  readAt: string;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: 'message.read',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent('chat.message.read', event);
-}
-
-export async function publishUserOnline(payload: {
-  userId: string;
-  online: boolean;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: 'user.online',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent('chat.user.online', event);
-}
-
-export async function publishTyping(payload: {
-  conversationId: string;
-  userId: string;
-  isTyping: boolean;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: payload.isTyping ? 'typing.start' : 'typing.stop',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent(`chat.typing.${payload.isTyping ? 'start' : 'stop'}`, event);
 }
 </file>
 

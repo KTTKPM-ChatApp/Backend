@@ -6,6 +6,7 @@ import { authenticate } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
 import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
+import { generateCloudinarySignature } from './cloudinary';
 
 // Configure multer for file uploads
 const upload = multer({
@@ -63,10 +64,13 @@ app.delete('/api/conversations/:conversationId/members/:memberId', authenticate,
 // 2.3 Rời conversation
 app.post('/api/conversations/:conversationId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/leave`, true));
 
-// 2.4 Cập nhật vai trò thành viên
+// 2.4 Chuyển quyền trưởng nhóm
+app.post('/api/conversations/:conversationId/transfer-ownership', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/transfer-ownership`, true));
+
+// 2.5 Cập nhật vai trò thành viên
 app.patch('/api/conversations/:conversationId/members/:memberId/role', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/members/${req.params.memberId}/role`, true));
 
-// 2.5 Cập nhật cài đặt cá nhân
+// 2.6 Cập nhật cài đặt cá nhân
 app.patch('/api/conversations/:conversationId/settings', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/settings`, true));
 
 // 3. Quản lý Lời mời nhóm
@@ -173,6 +177,25 @@ app.delete('/api/friends/requests/:requestId', authenticate, (req, res) => proxy
 app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.friendId}`));
 app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
 app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
+
+// Cloudinary signed upload (protected)
+app.post('/api/media/cloudinary-sign', authenticate, (req, res) => {
+  try {
+    const { resourceType } = req.body;
+    const userId = (req as any).userId;
+    const folder = `${config.cloudinary.uploadFolder}/${userId}`;
+
+    const signResult = generateCloudinarySignature({
+      resourceType: resourceType || 'auto',
+      folder,
+    });
+
+    res.json({ success: true, data: signResult });
+  } catch (error) {
+    console.error('[Cloudinary Sign Error]', error);
+    res.status(500).json({ message: 'Failed to generate Cloudinary signature' });
+  }
+});
 
 // Media upload routes (protected)
 app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));

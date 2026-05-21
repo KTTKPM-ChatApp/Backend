@@ -101,6 +101,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
     const memberData = {
       userId: m.userId,
       displayName: null as string | null,
+      avatarUrl: null as string | null,
       role: m.role
     };
     memberMap.get(m.conversationId)!.push(memberData);
@@ -113,6 +114,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
       const info = userInfoMap.get(m.userId);
       if (info) {
         m.displayName = info.displayName;
+        m.avatarUrl = info.avatarUrl;
       }
     }
   }
@@ -453,6 +455,35 @@ export async function leaveConversation(
   await memberRepo().delete({ conversationId, userId });
   
   return { message: 'Left conversation successfully' };
+}
+
+export async function transferOwnership(
+  userId: string,
+  conversationId: string,
+  newOwnerId: string
+) {
+  await checkOwnerPermission(userId, conversationId);
+  
+  if (userId === newOwnerId) {
+    throw new Error('Cannot transfer ownership to yourself');
+  }
+  
+  const newOwner = await memberRepo().findOneBy({ conversationId, userId: newOwnerId });
+  if (!newOwner) {
+    throw new Error('New owner not found');
+  }
+  
+  await memberRepo().update(
+    { conversationId, userId },
+    { role: 'ADMIN' }
+  );
+  
+  await memberRepo().update(
+    { conversationId, userId: newOwnerId },
+    { role: 'OWNER' }
+  );
+  
+  return { message: 'Ownership transferred successfully' };
 }
 
 export async function updateMemberRole(
