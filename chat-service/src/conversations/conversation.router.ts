@@ -218,7 +218,7 @@ router.patch('/:conversationId/members/:memberId/role',
   [
     param('conversationId').isUUID(),
     param('memberId').isUUID(),
-    body('role').isIn(['admin', 'member']),
+    body('role').isIn(['admin', 'member', 'ADMIN', 'MEMBER']),
   ],
   validate,
   async (req: AuthReq, res: Response) => {
