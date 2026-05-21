@@ -135,7 +135,7 @@ router.get('/:conversationId/messages',
 router.post('/:conversationId/messages',
   authenticate,
   [
-    body('content').isString().notEmpty(),
+    body('content').optional().isString(),
     body('contentType').optional().isString(),
     body('attachments').optional().isArray(),
     body('reply_to_id').optional({ nullable: true }).isString(),
@@ -144,10 +144,13 @@ router.post('/:conversationId/messages',
   async (req: AuthReq, res: Response) => {
     try {
       const { content, contentType, attachments, reply_to_id } = req.body;
+      if (!content && (!attachments || attachments.length === 0)) {
+        return res.status(400).json({ message: 'Message must contain content or at least one attachment' });
+      }
       const message = await chatService.sendMessage(
         req.userId!,
         req.params.conversationId,
-        content,
+        content || '',
         contentType,
         attachments || [],
         reply_to_id || null

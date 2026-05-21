@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { AppDataSource, Conversation, ConversationMember, Message, MessageAttachment, User } from '../db';
+import { AppDataSource, Conversation, ConversationMember, Message, User } from '../db';
 import { notifyNewMessage } from '../notifier';
 import { fetchUserInfo } from '../auth-client';
 import { publishNewMessage } from '../rabbitmq';
@@ -7,7 +7,6 @@ import { publishNewMessage } from '../rabbitmq';
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
-const attachmentRepo = () => AppDataSource.getRepository(MessageAttachment);
 const userRepo = () => AppDataSource.getRepository(User);
 
 function buildDirectKey(userId1: string, userId2: string): string {
@@ -209,26 +208,18 @@ export async function getConversationMessages(
     });
   }
   
-  // Get attachments for all messages
-  const messageIds = messages.map(m => m.id);
-  if (messageIds.length > 0) {
-    const attachments = await attachmentRepo()
-      .createQueryBuilder('a')
-      .where('a.message_id IN (:...ids)', { ids: messageIds })
-      .getMany();
-    
-    const attachmentMap = new Map<string, any[]>();
-    attachments.forEach(att => {
-      if (!attachmentMap.has(att.messageId)) attachmentMap.set(att.messageId, []);
-      attachmentMap.get(att.messageId)!.push(att);
-    });
-    
-    // Add attachments and sender info to messages
-    messages.forEach(msg => {
-      (msg as any).attachments = attachmentMap.get(msg.id) || [];
-      (msg as any).sender = usersMap.get(msg.senderId) || null;
-    });
-  }
+  // Parse attachments from JSON column on each message
+  messages.forEach(msg => {
+    const rawAtts = msg.attachments;
+    if (Array.isArray(rawAtts)) {
+      (msg as any).attachments = rawAtts;
+    } else if (typeof rawAtts === 'string') {
+      try { (msg as any).attachments = JSON.parse(rawAtts); } catch { (msg as any).attachments = []; }
+    } else {
+      (msg as any).attachments = [];
+    }
+    (msg as any).sender = usersMap.get(msg.senderId) || null;
+  });
   
   return messages.reverse();
 }
@@ -248,40 +239,56 @@ export async function sendMessage(
   if (!isMember) throw new Error('You are not a member of this conversation');
   
   const trimmedContent = content.trim();
-  if (!trimmedContent) throw new Error('Message content cannot be empty');
+  if (!trimmedContent && (!attachments || attachments.length === 0)) {
+    throw new Error('Message must contain content or at least one attachment');
+  }
+  
+  const normalizedAttachments = (attachments || []).map((att) => {
+    const contentType = att.contentType || att.content_type || '';
+    const inferredType = att.type || 
+      (contentType.startsWith('image/') ? 'image' : 
+       contentType.startsWith('video/') ? 'video' : 
+       contentType.startsWith('audio/') ? 'audio' : 'document');
+    
+    return {
+      key: att.key || att.publicId || '',
+      url: att.url || '',
+      type: inferredType,
+      name: att.name || att.fileName || att.originalName || 'file',
+      size: att.size || 0,
+      contentType,
+      thumbnailUrl: att.thumbnailUrl || att.thumbnail_key || null,
+      publicId: att.publicId || att.key || null,
+      resourceType: att.resourceType || null,
+    };
+  });
+
+  const hasMedia = normalizedAttachments.some(a => a.type === 'image' || a.type === 'video');
+  const hasFiles = normalizedAttachments.some(a => a.type === 'document' || a.type === 'file' || a.type === 'audio');
+  let detectedContentType = 'TEXT';
+  if (!trimmedContent && normalizedAttachments.length > 0) {
+    if (hasMedia && hasFiles) detectedContentType = 'MIXED';
+    else if (hasMedia) detectedContentType = 'MEDIA';
+    else if (hasFiles) detectedContentType = 'FILE';
+    else detectedContentType = 'MEDIA';
+  } else if (trimmedContent && normalizedAttachments.length > 0) {
+    detectedContentType = 'MIXED';
+  } else {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    if (urlRegex.test(trimmedContent)) detectedContentType = 'LINK';
+  }
   
   const message = messageRepo().create({
     id: uuid(),
     conversationId,
     senderId: userId,
-    contentType,
+    contentType: detectedContentType,
     content: trimmedContent,
     replyToId: replyToId || undefined,
+    attachments: normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
   });
   await messageRepo().save(message);
-  console.log(`[sendMessage] saved message ${message.id}, replyToId=${message.replyToId}`);
-  
-  // Handle attachments if provided
-  if (attachments && attachments.length > 0) {
-    const savedAttachments = [];
-    
-    for (const attachment of attachments) {
-      const savedAttachment = attachmentRepo().create({
-        id: uuid(),
-        messageId: message.id,
-        key: attachment.key,
-        url: attachment.url,
-        originalName: attachment.originalName,
-        mimeType: attachment.mimeType,
-        size: attachment.size,
-      });
-      await attachmentRepo().save(savedAttachment);
-      savedAttachments.push(savedAttachment);
-    }
-    
-    // Add attachments to message response
-    (message as any).attachments = savedAttachments;
-  }
+  console.log(`[sendMessage] saved message ${message.id}, contentType=${detectedContentType}, attachments=${normalizedAttachments.length}`);
   
   // Update last message
   await conversationRepo().update(conversationId, {
