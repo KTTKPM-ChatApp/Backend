@@ -3,6 +3,7 @@ package chatapp.realtimeservice.controller;
 import chatapp.realtimeservice.dto.ApiResponse;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
+import chatapp.realtimeservice.dto.SystemEventRequest;
 import chatapp.realtimeservice.service.MessageBroadcastService;
 import chatapp.realtimeservice.service.PresenceRepository;
 import org.slf4j.Logger;
@@ -66,6 +67,36 @@ public class RealtimeController {
         return response.success() 
                 ? ResponseEntity.ok(response)
                 : ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @PostMapping("/internal/events/system")
+    public ResponseEntity<ApiResponse<Void>> notifySystemEvent(
+            @RequestBody SystemEventRequest event,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (validateInternalApiKey(apiKey)) {
+            logger.warn("Unauthorized internal system event attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing system event: {} in conversation {}", event.systemEventType(), event.conversationId());
+
+        try {
+            messageBroadcastService.broadcastSystemEvent(
+                    event.conversationId(),
+                    event.messageId(),
+                    event.senderId(),
+                    event.systemEventType(),
+                    event.metadata(),
+                    event.createdAt()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "System event broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast system event: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast system event: " + ex.getMessage()));
+        }
     }
 
     @GetMapping("/internal/users/online")

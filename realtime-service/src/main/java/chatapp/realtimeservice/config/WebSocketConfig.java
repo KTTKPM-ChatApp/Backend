@@ -13,6 +13,8 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -20,6 +22,8 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketConfig.class);
 
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -65,16 +69,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
                 // Nếu Client đang yêu cầu kết nối
                 if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-                    // Lấy token từ header "Authorization" của STOMP
                     String authorizationHeader = accessor.getFirstNativeHeader("Authorization");
                     String userId = jwtTokenProvider.getUserIdFromToken(authorizationHeader);
 
                     if (userId == null || userId.isBlank()) {
-                        throw new IllegalArgumentException("Invalid JWT token");
+                        logger.warn("Invalid or missing JWT token for STOMP CONNECT");
+                    } else {
+                        accessor.setUser(new UserPrincipal(userId));
                     }
-
-                    // Lưu user vào Principal của WebSocket session
-                    accessor.setUser(new UserPrincipal(userId));
                 }
                 return message;
             }

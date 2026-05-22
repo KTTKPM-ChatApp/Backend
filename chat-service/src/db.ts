@@ -47,6 +47,10 @@ export class Message {
   @Column('datetime', { name: 'edited_at', nullable: true }) editedAt?: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+  @Column('varchar', { length: 20, default: 'text', name: 'type' }) type!: string;
+  @Column('varchar', { length: 20, nullable: true, name: 'message_type' }) messageType?: string;
+  @Column('varchar', { length: 50, nullable: true, name: 'system_event_type' }) systemEventType?: string;
+  @Column('json', { nullable: true, name: 'metadata' }) metadata?: Record<string, any> | null;
 }
 
 @Entity('message_pins')
