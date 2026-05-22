@@ -555,7 +555,6 @@ export async function deleteMessage(
   const message = await messageRepo().findOneBy({
     id: messageId,
     conversationId,
-    createdAt: new Date(createdAt),
   });
 
   if (!message) {

@@ -33,25 +33,66 @@ export async function notifyNewMessage(payload: NewMessagePayload): Promise<void
 
   const notifyEndpoint = `${realtimeUrl}/api/v1/internal/messages/notify`;
 
-  const promises = payload.receiverIds.map(receiverId =>
-    axios.post(
+  try {
+    await axios.post(
       notifyEndpoint,
       {
         message_id:      payload.messageId,
+        conversation_id: payload.conversationId,
         sender_id:       payload.senderId,
         sender_name:     payload.senderName,
-        receiver_id:     receiverId,
-        conversation_id: payload.conversationId,
         content:         payload.content,
         content_type:    payload.contentType,
         created_at:      payload.createdAt,
       },
       { headers, timeout: 3000 }
-    ).catch((err: Error) => {
-      // Log nhưng không throw — không làm fail toàn bộ request
-      console.warn(`[notifier] Failed to notify realtime-service for user ${receiverId}:`, err.message);
-    })
-  );
+    );
+  } catch (err: any) {
+    console.warn(`[notifier] Failed to notify realtime-service:`, err.message);
+  }
+}
 
-  await Promise.allSettled(promises);
+export interface SystemEventPayload {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  systemEventType: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Gửi system event tới realtime-service để broadcast STOMP cho tất cả member trong conversation.
+ */
+export async function notifySystemEvent(payload: SystemEventPayload, createdAt?: string): Promise<void> {
+  const realtimeUrl = config.realtimeService.url;
+  if (!realtimeUrl) {
+    console.log('[notifier] REALTIME_SERVICE_URL not configured, skipping system event');
+    return;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (config.realtimeService.internalApiKey) {
+    headers['x-internal-api-key'] = config.realtimeService.internalApiKey;
+  }
+
+  const eventEndpoint = `${realtimeUrl}/api/v1/internal/events/system`;
+
+  try {
+    await axios.post(
+      eventEndpoint,
+      {
+        message_id: payload.messageId,
+        conversation_id: payload.conversationId,
+        sender_id: payload.senderId,
+        system_event_type: payload.systemEventType,
+        metadata: payload.metadata ?? {},
+        created_at: createdAt ?? new Date().toISOString(),
+      },
+      { headers, timeout: 3000 }
+    );
+  } catch (err: any) {
+    console.warn(`[notifier] Failed to notify system event:`, err.message);
+  }
 }

@@ -18,6 +18,49 @@ import {
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
 import { publishConversationCreated } from '../rabbitmq';
+import { notifySystemEvent } from '../notifier';
+
+async function resolveDisplayNames(userIds: string[]): Promise<Map<string, string>> {
+  const map = await fetchUsersInfo(userIds);
+  const result = new Map<string, string>();
+  for (const id of userIds) {
+    result.set(id, map.get(id)?.displayName ?? id);
+  }
+  return result;
+}
+
+async function persistAndNotifySystemEvent(
+  conversationId: string,
+  senderId: string,
+  systemEventType: string,
+  metadata: Record<string, any>
+) {
+  const messageId = uuid();
+  const now = new Date();
+
+  const message = messageRepo().create({
+    id: messageId,
+    conversationId,
+    senderId,
+    contentType: 'SYSTEM',
+    content: '',
+    type: 'system',
+    messageType: 'system',
+    systemEventType,
+    metadata,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await messageRepo().save(message);
+
+  notifySystemEvent({
+    messageId,
+    conversationId,
+    senderId,
+    systemEventType,
+    metadata,
+  }, now.toISOString()).catch(() => {});
+}
 
 // Repository getters
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
@@ -166,9 +209,10 @@ export async function getConversationById(userId: string, conversationId: string
   const enrichedMembers = members.map(m => ({
     userId: m.userId,
     displayName: userInfoMap.get(m.userId)?.displayName ?? null,
+    avatarUrl: userInfoMap.get(m.userId)?.avatarUrl ?? null,
     role: m.role,
   }));
-  
+
   return {
     ...conversation,
     members: enrichedMembers,
@@ -362,6 +406,41 @@ export async function updateConversation(
   await conversationRepo().update(conversationId, updateData);
   
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
+
+  if (name !== undefined || avatarUrl !== undefined) {
+    const updaterName = (await fetchUserInfo(userId))?.displayName ?? userId;
+    const events: Array<{ type: string; metadata: Record<string, any> }> = [];
+
+    if (name !== undefined) {
+      events.push({
+        type: 'CONVERSATION_UPDATED',
+        metadata: {
+          updated_by_name: updaterName,
+          updated_by_id: userId,
+          field: 'name',
+          new_value: name.trim(),
+        },
+      });
+    }
+
+    if (avatarUrl !== undefined) {
+      events.push({
+        type: 'CONVERSATION_UPDATED',
+        metadata: {
+          updated_by_name: updaterName,
+          updated_by_id: userId,
+          field: 'avatar',
+          new_value: avatarUrl,
+        },
+      });
+    }
+
+    for (const event of events) {
+      persistAndNotifySystemEvent(conversationId, userId, event.type, event.metadata)
+        .catch((err: any) => console.error('[updateConversation] persistAndNotifySystemEvent error:', err));
+    }
+  }
+  
   const members = await memberRepo().findBy({ conversationId });
   
   return {
@@ -403,7 +482,19 @@ export async function addMembers(
   await memberRepo().save(newMemberIds.map(userId => 
     memberRepo().create({ conversationId, userId, role: 'MEMBER', joinedAt: new Date() })
   ));
-  
+
+  const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'MEMBER_ADDED',
+    {
+      added_by_name: displayNames.get(userId)!,
+      added_members: newMemberIds.map((id: string) => ({ full_name: displayNames.get(id)! })),
+    }
+  );
+
   return { message: `Added ${newMemberIds.length} members successfully` };
 }
 
@@ -435,7 +526,21 @@ export async function removeMember(
   }
   
   await memberRepo().delete({ conversationId, userId: memberId });
-  
+
+  const removerName = (await fetchUserInfo(userId))?.displayName ?? userId;
+  const removedName = (await fetchUserInfo(memberId))?.displayName ?? memberId;
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'MEMBER_REMOVED',
+    {
+      removed_by_name: removerName,
+      removed_user_name: removedName,
+      removed_user_id: memberId,
+    }
+  );
+
   return { message: 'Member removed successfully' };
 }
 
@@ -453,7 +558,16 @@ export async function leaveConversation(
   }
   
   await memberRepo().delete({ conversationId, userId });
-  
+
+  const leftName = (await fetchUserInfo(userId))?.displayName ?? userId;
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'MEMBER_LEFT',
+    { user_name: leftName, user_id: userId }
+  );
+
   return { message: 'Left conversation successfully' };
 }
 
@@ -482,7 +596,19 @@ export async function transferOwnership(
     { conversationId, userId: newOwnerId },
     { role: 'OWNER' }
   );
-  
+
+  const ownerNames = await resolveDisplayNames([userId, newOwnerId]);
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'OWNER_TRANSFERRED',
+    {
+      previous_owner_name: ownerNames.get(userId)!,
+      new_owner_name: ownerNames.get(newOwnerId)!,
+    }
+  );
+
   return { message: 'Ownership transferred successfully' };
 }
 
@@ -508,9 +634,22 @@ export async function updateMemberRole(
   }
   
   await memberRepo().update({ conversationId, userId: memberId }, { role: newRole });
-  
+
   const updatedMember = await memberRepo().findOneBy({ conversationId, userId: memberId });
-  
+
+  const roleNames = await resolveDisplayNames([userId, memberId]);
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'ROLE_CHANGED',
+    {
+      updated_by_name: roleNames.get(userId)!,
+      target_user_name: roleNames.get(memberId)!,
+      new_role: newRole === 'ADMIN' ? 'co_owner' : 'member',
+    }
+  );
+
   return updatedMember;
 }
 
@@ -1286,7 +1425,16 @@ export async function disbandGroup(
   if (conversation?.type === 'DIRECT') {
     throw new Error('Cannot disband direct conversation');
   }
-  
+
+  const disbandName = (await fetchUserInfo(userId))?.displayName ?? userId;
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'GROUP_DISBANDED',
+    { disbanded_by_name: disbandName }
+  );
+
   // Remove all members
   await memberRepo().delete({ conversationId });
   
