@@ -28,6 +28,18 @@ router.get('/',
 );
 
 // 1.2 Lấy conversation theo ID
+router.get('/ice-servers',
+  authenticate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const iceServers = await conversationService.getIceServers();
+      res.json(iceServers);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+);
+
 router.get('/:conversationId',
   authenticate,
   [
@@ -618,19 +630,6 @@ router.post('/:conversationId/polls/:pollId/close',
 );
 
 // 5. Quản lý Call (Cuộc gọi)
-
-// 5.1 Lấy ICE servers
-router.get('/ice-servers',
-  authenticate,
-  async (req: AuthReq, res: Response) => {
-    try {
-      const iceServers = await conversationService.getIceServers();
-      res.json(iceServers);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  }
-);
 
 // 5.2 Lịch sử cuộc gọi
 router.get('/:conversationId/calls',

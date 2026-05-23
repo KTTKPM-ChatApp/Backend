@@ -18,7 +18,7 @@ import {
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
 import { publishConversationCreated } from '../rabbitmq';
-import { notifySystemEvent } from '../notifier';
+import { notifyConversationCreated, notifySystemEvent } from '../notifier';
 
 async function resolveDisplayNames(userIds: string[]): Promise<Map<string, string>> {
   const map = await fetchUsersInfo(userIds);
@@ -168,6 +168,27 @@ export async function listConversations(userId: string, page: number = 1, limit:
     .getMany();
   
   const pinnedSet = new Set(pinned.map(p => p.conversationId));
+  const lastReadByConversation = new Map(
+    members
+      .filter(m => m.userId === userId)
+      .map(m => [m.conversationId, m.lastReadAt ?? null])
+  );
+  const unreadEntries = await Promise.all(
+    conversationIds.map(async conversationId => {
+      const lastReadAt = lastReadByConversation.get(conversationId);
+      const qb = messageRepo()
+        .createQueryBuilder('msg')
+        .where('msg.conversation_id = :conversationId', { conversationId })
+        .andWhere('msg.sender_id != :userId', { userId });
+
+      if (lastReadAt) {
+        qb.andWhere('msg.created_at > :lastReadAt', { lastReadAt });
+      }
+
+      return [conversationId, await qb.getCount()] as const;
+    })
+  );
+  const unreadCountMap = new Map(unreadEntries);
   
   return {
     data: conversations.map(c => {
@@ -182,6 +203,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
         ...c,
         name,
         members,
+        unreadCount: unreadCountMap.get(c.id) ?? 0,
         isPinned: pinnedSet.has(c.id)
       };
     }),
@@ -291,6 +313,13 @@ export async function createGroupConversation(
     memberIds: allMemberIds,
     title: name.trim(),
   });
+  await notifyConversationCreated({
+    conversationId: conversation.id,
+    type: 'GROUP',
+    createdBy,
+    memberIds: allMemberIds,
+    title: name.trim(),
+  });
   
   return {
     ...conversation,
@@ -383,6 +412,13 @@ export async function createDirectConversation(
     memberIds,
     title,
   });
+  await notifyConversationCreated({
+    conversationId: conversation.id,
+    type: 'DIRECT',
+    createdBy,
+    memberIds,
+    title,
+  });
   
   return {
     ...conversation,
@@ -456,7 +492,7 @@ export async function addMembers(
   conversationId: string,
   memberIds: string[]
 ) {
-  await checkAdminPermission(userId, conversationId);
+  const currentMember = await checkMembership(userId, conversationId);
   
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (conversation?.type === 'DIRECT') {
@@ -464,6 +500,15 @@ export async function addMembers(
   }
   
   const settings = await settingsRepo().findOneBy({ conversationId });
+  const canAddMembers =
+    currentMember.role === 'OWNER' ||
+    currentMember.role === 'ADMIN' ||
+    settings?.permissions?.canAddMembers !== false;
+
+  if (!canAddMembers) {
+    throw new Error('You do not have permission to add members');
+  }
+
   const maxMembers = settings?.policies?.maxMembers || 100;
   
   const existingMembers = await memberRepo().findBy({ conversationId });
@@ -484,6 +529,14 @@ export async function addMembers(
   ));
 
   const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
+
+  notifyConversationCreated({
+    conversationId,
+    type: conversation?.type ?? 'GROUP',
+    createdBy: userId,
+    memberIds: newMemberIds,
+    title: conversation?.title,
+  }).catch((err: any) => console.error('[addMembers] notifyConversationCreated error:', err));
 
   persistAndNotifySystemEvent(
     conversationId,

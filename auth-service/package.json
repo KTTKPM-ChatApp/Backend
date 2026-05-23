@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "ts-node-dev --respawn src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "seed:sample": "node scripts/seed-sample.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
