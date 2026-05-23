@@ -41,6 +41,7 @@ export async function notifyNewMessage(payload: NewMessagePayload): Promise<void
         conversation_id: payload.conversationId,
         sender_id:       payload.senderId,
         sender_name:     payload.senderName,
+        receiver_ids:    payload.receiverIds,
         content:         payload.content,
         content_type:    payload.contentType,
         created_at:      payload.createdAt,
@@ -58,6 +59,45 @@ export interface SystemEventPayload {
   senderId: string;
   systemEventType: string;
   metadata?: Record<string, any>;
+}
+
+export interface ConversationCreatedPayload {
+  conversationId: string;
+  type: string;
+  memberIds: string[];
+  title?: string;
+  createdBy?: string;
+}
+
+export async function notifyConversationCreated(payload: ConversationCreatedPayload): Promise<void> {
+  const realtimeUrl = config.realtimeService.url;
+  if (!realtimeUrl) {
+    console.log('[notifier] REALTIME_SERVICE_URL not configured, skipping conversation created');
+    return;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (config.realtimeService.internalApiKey) {
+    headers['x-internal-api-key'] = config.realtimeService.internalApiKey;
+  }
+
+  try {
+    await axios.post(
+      `${realtimeUrl}/api/v1/internal/conversations/created`,
+      {
+        conversation_id: payload.conversationId,
+        type: payload.type,
+        member_ids: payload.memberIds,
+        title: payload.title,
+        created_by: payload.createdBy,
+      },
+      { headers, timeout: 3000 }
+    );
+  } catch (err: any) {
+    console.warn(`[notifier] Failed to notify conversation created:`, err.message);
+  }
 }
 
 /**
