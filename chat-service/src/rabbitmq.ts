@@ -1,5 +1,7 @@
 import amqp from 'amqplib';
 import { config } from './config';
+import { RABBITMQ } from '../shared/contracts/events';
+export { RABBITMQ };
 
 let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
@@ -97,7 +99,7 @@ export async function publishNewMessage(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.message.sent', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_SENT, event);
 }
 
 export async function publishConversationCreated(payload: {
@@ -112,7 +114,7 @@ export async function publishConversationCreated(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.conversation.created', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.CONVERSATION_CREATED, event);
 }
 
 export async function publishMessageRead(payload: {
@@ -126,7 +128,7 @@ export async function publishMessageRead(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.message.read', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_READ, event);
 }
 
 export async function publishUserOnline(payload: {
@@ -138,7 +140,7 @@ export async function publishUserOnline(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.user.online', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.USER_ONLINE, event);
 }
 
 export async function publishTyping(payload: {
@@ -151,5 +153,8 @@ export async function publishTyping(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent(`chat.typing.${payload.isTyping ? 'start' : 'stop'}`, event);
+  return publishEvent(
+    payload.isTyping ? RABBITMQ.ROUTING_KEYS.TYPING_START : RABBITMQ.ROUTING_KEYS.TYPING_STOP,
+    event,
+  );
 }

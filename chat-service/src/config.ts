@@ -29,4 +29,7 @@ export const config = {
   authService: {
     url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
   },
+  gatewayService: {
+    url: process.env.GATEWAY_SERVICE_URL || 'http://api-gateway:3000',
+  },
 };

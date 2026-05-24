@@ -99,8 +99,8 @@ services:
 
   chat-service:
     build:
-      context: ./chat-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./chat-service/Dockerfile
     container_name: ktpm-chat-service
     restart: unless-stopped
     depends_on:
@@ -125,6 +125,7 @@ services:
       # Kết nối tới realtime-service để push notification
       REALTIME_SERVICE_URL: http://realtime-service:8080
       INTERNAL_API_KEY: ktpm-internal-secret-key-2024
+      GATEWAY_SERVICE_URL: http://api-gateway:3000
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
