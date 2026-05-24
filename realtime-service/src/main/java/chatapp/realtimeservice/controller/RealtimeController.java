@@ -3,6 +3,7 @@ package chatapp.realtimeservice.controller;
 import chatapp.realtimeservice.dto.ApiResponse;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
+import chatapp.realtimeservice.dto.NewConversationRequest;
 import chatapp.realtimeservice.dto.SystemEventRequest;
 import chatapp.realtimeservice.service.MessageBroadcastService;
 import chatapp.realtimeservice.service.PresenceRepository;
@@ -128,6 +129,29 @@ public class RealtimeController {
         int count = presenceRepository.getOnlineUserCount();
         logger.debug("Total online users: {}", count);
         return ResponseEntity.ok(ApiResponse.ok(count, "Online user count"));
+    }
+
+    @PostMapping("/internal/conversations/notify")
+    public ResponseEntity<ApiResponse<Void>> notifyNewConversation(
+            @RequestBody NewConversationRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (validateInternalApiKey(apiKey)) {
+            logger.warn("Unauthorized internal new conversation notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing new conversation notification: {} type={}", request.conversationId(), request.type());
+
+        try {
+            messageBroadcastService.broadcastNewConversation(request);
+            return ResponseEntity.ok(ApiResponse.ok(null, "New conversation notification sent successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast new conversation notification: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast new conversation: " + ex.getMessage()));
+        }
     }
 
     private boolean validateInternalApiKey(String apiKey) {

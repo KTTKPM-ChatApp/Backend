@@ -10,6 +10,7 @@ export interface NewMessagePayload {
   content: string;
   contentType: string;
   createdAt: string;
+  attachments?: any[];
 }
 
 /**
@@ -41,9 +42,11 @@ export async function notifyNewMessage(payload: NewMessagePayload): Promise<void
         conversation_id: payload.conversationId,
         sender_id:       payload.senderId,
         sender_name:     payload.senderName,
+        receiver_ids:    payload.receiverIds,
         content:         payload.content,
         content_type:    payload.contentType,
         created_at:      payload.createdAt,
+        attachments:     payload.attachments ?? [],
       },
       { headers, timeout: 3000 }
     );
@@ -58,6 +61,50 @@ export interface SystemEventPayload {
   senderId: string;
   systemEventType: string;
   metadata?: Record<string, any>;
+}
+
+export interface NewConversationPayload {
+  conversationId: string;
+  type: string;
+  createdBy: string;
+  memberIds: string[];
+  title?: string;
+}
+
+/**
+ * Gửi notification về conversation mới tới realtime-service để thông báo đến từng member.
+ */
+export async function notifyNewConversation(payload: NewConversationPayload): Promise<void> {
+  const realtimeUrl = config.realtimeService.url;
+  if (!realtimeUrl) {
+    console.log('[notifier] REALTIME_SERVICE_URL not configured, skipping new conversation notification');
+    return;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (config.realtimeService.internalApiKey) {
+    headers['x-internal-api-key'] = config.realtimeService.internalApiKey;
+  }
+
+  const notifyEndpoint = `${realtimeUrl}/api/v1/internal/conversations/notify`;
+
+  try {
+    await axios.post(
+      notifyEndpoint,
+      {
+        conversation_id: payload.conversationId,
+        type: payload.type,
+        created_by: payload.createdBy,
+        member_ids: payload.memberIds,
+        title: payload.title ?? '',
+      },
+      { headers, timeout: 3000 }
+    );
+  } catch (err: any) {
+    console.warn(`[notifier] Failed to notify new conversation:`, err.message);
+  }
 }
 
 /**

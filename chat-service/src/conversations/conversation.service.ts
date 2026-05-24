@@ -18,7 +18,7 @@ import {
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
 import { publishConversationCreated } from '../rabbitmq';
-import { notifySystemEvent } from '../notifier';
+import { notifyNewConversation, notifySystemEvent } from '../notifier';
 
 async function resolveDisplayNames(userIds: string[]): Promise<Map<string, string>> {
   const map = await fetchUsersInfo(userIds);
@@ -104,6 +104,16 @@ async function checkOwnerPermission(userId: string, conversationId: string): Pro
 
 // 1. Quản lý Conversation cơ bản
 
+function formatLastMessagePreview(msg: Message): string {
+  if (msg.content && msg.content.trim()) return msg.content;
+  if (!msg.attachments || msg.attachments.length === 0) return msg.content || '';
+  const types = msg.attachments.map(a => a.type);
+  if (types.includes('image')) return 'Đã gửi 1 ảnh';
+  if (types.includes('video')) return 'Đã gửi 1 video';
+  if (types.includes('audio')) return 'Đã gửi 1 tin nhắn thoại';
+  return 'Đã gửi 1 tệp đính kèm';
+}
+
 export async function listConversations(userId: string, page: number = 1, limit: number = 20) {
   const offset = (page - 1) * limit;
   
@@ -168,21 +178,51 @@ export async function listConversations(userId: string, page: number = 1, limit:
     .getMany();
   
   const pinnedSet = new Set(pinned.map(p => p.conversationId));
-  
+
+  // Fetch last message details for each conversation
+  const lastMessageIds = conversations.map(c => c.lastMessageId).filter(Boolean) as string[];
+  const lastMessageData = new Map<string, { id: string; content: string; createdAt: Date; senderId: string; senderName: string }>();
+  if (lastMessageIds.length > 0) {
+    const messages = await messageRepo()
+      .createQueryBuilder('m')
+      .where('m.id IN (:...ids)', { ids: lastMessageIds })
+      .getMany();
+    const senderIds = [...new Set(messages.filter(m => m.senderId).map(m => m.senderId))];
+    const userInfoMap2 = await fetchUsersInfo(senderIds);
+    for (const msg of messages) {
+      const senderInfo = userInfoMap2.get(msg.senderId);
+      lastMessageData.set(msg.conversationId, {
+        id: msg.id,
+        content: formatLastMessagePreview(msg),
+        createdAt: msg.createdAt,
+        senderId: msg.senderId,
+        senderName: senderInfo?.displayName || 'Người dùng',
+      });
+    }
+  }
+
   return {
     data: conversations.map(c => {
       const members = memberMap.get(c.id) || [];
       const otherMember = members.find(m => m.userId !== userId);
       let name = c.title || 'Cuộc trò chuyện';
-      // Chỉ dùng tên user cho DIRECT, giữ nguyên title cho GROUP
       if (c.type === 'DIRECT' && otherMember?.displayName) {
         name = otherMember.displayName;
       }
+      const lmData = c.lastMessageId ? lastMessageData.get(c.id) : undefined;
+      const lastMessage = lmData ? {
+        id: lmData.id,
+        content: lmData.content,
+        createdAt: lmData.createdAt,
+        senderId: lmData.senderId,
+        senderName: lmData.senderName,
+      } : undefined;
       return {
         ...c,
         name,
         members,
-        isPinned: pinnedSet.has(c.id)
+        isPinned: pinnedSet.has(c.id),
+        lastMessage,
       };
     }),
     meta: {
@@ -213,9 +253,26 @@ export async function getConversationById(userId: string, conversationId: string
     role: m.role,
   }));
 
+  let lastMessage: { id: string; content: string; createdAt: Date; senderId: string; senderName: string } | undefined;
+  if (conversation.lastMessageId) {
+    const msg = await messageRepo().findOneBy({ id: conversation.lastMessageId });
+    if (msg) {
+      const userInfoMap2 = await fetchUsersInfo([msg.senderId]);
+      const senderInfo = userInfoMap2.get(msg.senderId);
+      lastMessage = {
+        id: msg.id,
+        content: formatLastMessagePreview(msg),
+        createdAt: msg.createdAt,
+        senderId: msg.senderId,
+        senderName: senderInfo?.displayName || 'Người dùng',
+      };
+    }
+  }
+
   return {
     ...conversation,
     members: enrichedMembers,
+    lastMessage,
   };
 }
 
@@ -291,7 +348,16 @@ export async function createGroupConversation(
     memberIds: allMemberIds,
     title: name.trim(),
   });
-  
+
+  // Notify all members via realtime-service (STOMP)
+  notifyNewConversation({
+    conversationId: conversation.id,
+    type: 'GROUP',
+    createdBy,
+    memberIds: allMemberIds,
+    title: name.trim(),
+  }).catch((err: any) => console.error('[createGroupConversation] notifyNewConversation error:', err));
+
   return {
     ...conversation,
     members
@@ -383,7 +449,7 @@ export async function createDirectConversation(
     memberIds,
     title,
   });
-  
+
   return {
     ...conversation,
     name: title,
@@ -491,9 +557,19 @@ export async function addMembers(
     'MEMBER_ADDED',
     {
       added_by_name: displayNames.get(userId)!,
-      added_members: newMemberIds.map((id: string) => ({ full_name: displayNames.get(id)! })),
+      added_members: newMemberIds.map((id: string) => ({ full_name: displayNames.get(id!) })),
     }
   );
+
+  if (conversation) {
+    notifyNewConversation({
+      conversationId,
+      type: conversation.type,
+      createdBy: userId,
+      memberIds: newMemberIds,
+      title: conversation.title,
+    }).catch((err: any) => console.error('[addMembers] notifyNewConversation error:', err));
+  }
 
   return { message: `Added ${newMemberIds.length} members successfully` };
 }
