@@ -37,6 +37,7 @@ app.get('/api/users/:id', authenticate, (req, res) => proxy(req, res, `${config.
 
 // 1.1 Lấy danh sách conversations
 app.get('/api/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations`, true));
+app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
 
 // 1.2 Lấy conversation theo ID
 app.get('/api/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}`, true));
@@ -120,9 +121,6 @@ app.delete('/api/conversations/:conversationId/polls/:pollId/options/:optionId',
 app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/polls/${req.params.pollId}/close`, true));
 
 // 5. Quản lý Call (Cuộc gọi)
-
-// 5.1 Lấy ICE servers
-app.get('/api/conversations/ice-servers', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/ice-servers`, true));
 
 // 5.2 Lịch sử cuộc gọi
 app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));

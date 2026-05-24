@@ -1,6 +1,7 @@
 package chatapp.realtimeservice.service;
 
 import chatapp.realtimeservice.dto.ApiResponse;
+import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
 import chatapp.realtimeservice.dto.NewConversationRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,9 @@ import java.util.Map;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class MessageBroadcastService {
@@ -34,6 +38,15 @@ public class MessageBroadcastService {
                     "/topic/conv." + notification.conversationId() + "/messages",
                     notification
             );
+
+            for (String receiverId : getReceiverIds(notification)) {
+                simpMessagingTemplate.convertAndSendToUser(
+                        receiverId,
+                        "/queue/messages",
+                        notification
+                );
+            }
+
             logger.info("Message {} broadcast to conversation {} via WebSocket", notification.messageId(), notification.conversationId());
 
             // 2. Broadcast to each recipient's personal topic (for conversation list preview updates)
@@ -109,6 +122,39 @@ public class MessageBroadcastService {
 
     private boolean isUserOnline(String userId) {
         return presenceRepository.isUserOnline(userId);
+    }
+
+    private List<String> getReceiverIds(MessageNotificationRequest notification) {
+        List<String> receiverIds = new ArrayList<>();
+        if (notification.receiverIds() != null) {
+            receiverIds.addAll(notification.receiverIds());
+        }
+        if (notification.receiverId() != null && !notification.receiverId().isBlank()) {
+            receiverIds.add(notification.receiverId());
+        }
+        return receiverIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    public void notifyConversationCreated(ConversationCreatedRequest conversation) {
+        if (conversation.memberIds() == null || conversation.memberIds().isEmpty()) {
+            logger.warn("Conversation {} has no members to notify", conversation.conversationId());
+            return;
+        }
+
+        for (String memberId : conversation.memberIds()) {
+            if (memberId == null || memberId.isBlank()) continue;
+            simpMessagingTemplate.convertAndSendToUser(
+                    memberId,
+                    "/queue/conversations",
+                    conversation
+            );
+        }
+
+        logger.info("Conversation {} notification sent to {} members",
+                conversation.conversationId(), conversation.memberIds().size());
     }
 
     public record PresenceUpdate(String userId, String event) {

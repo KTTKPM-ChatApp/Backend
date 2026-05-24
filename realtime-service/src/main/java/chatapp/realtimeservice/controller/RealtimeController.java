@@ -1,6 +1,7 @@
 package chatapp.realtimeservice.controller;
 
 import chatapp.realtimeservice.dto.ApiResponse;
+import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
 import chatapp.realtimeservice.dto.NewConversationRequest;
@@ -97,6 +98,27 @@ public class RealtimeController {
             logger.error("Failed to broadcast system event: {}", ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to broadcast system event: " + ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/internal/conversations/created")
+    public ResponseEntity<ApiResponse<Void>> notifyConversationCreated(
+            @RequestBody ConversationCreatedRequest conversation,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (validateInternalApiKey(apiKey)) {
+            logger.warn("Unauthorized internal conversation created attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        try {
+            messageBroadcastService.notifyConversationCreated(conversation);
+            return ResponseEntity.ok(ApiResponse.ok(null, "Conversation notification sent successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast conversation created: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast conversation created: " + ex.getMessage()));
         }
     }
 

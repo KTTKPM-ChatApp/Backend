@@ -522,7 +522,7 @@ export async function addMembers(
   conversationId: string,
   memberIds: string[]
 ) {
-  await checkAdminPermission(userId, conversationId);
+  const currentMember = await checkMembership(userId, conversationId);
   
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (conversation?.type === 'DIRECT') {
@@ -530,6 +530,15 @@ export async function addMembers(
   }
   
   const settings = await settingsRepo().findOneBy({ conversationId });
+  const canAddMembers =
+    currentMember.role === 'OWNER' ||
+    currentMember.role === 'ADMIN' ||
+    settings?.permissions?.canAddMembers !== false;
+
+  if (!canAddMembers) {
+    throw new Error('You do not have permission to add members');
+  }
+
   const maxMembers = settings?.policies?.maxMembers || 100;
   
   const existingMembers = await memberRepo().findBy({ conversationId });
@@ -550,6 +559,14 @@ export async function addMembers(
   ));
 
   const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
+
+  notifyConversationCreated({
+    conversationId,
+    type: conversation?.type ?? 'GROUP',
+    createdBy: userId,
+    memberIds: newMemberIds,
+    title: conversation?.title,
+  }).catch((err: any) => console.error('[addMembers] notifyConversationCreated error:', err));
 
   persistAndNotifySystemEvent(
     conversationId,
