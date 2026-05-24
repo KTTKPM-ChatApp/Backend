@@ -10,6 +10,7 @@ export interface NewMessagePayload {
   content: string;
   contentType: string;
   createdAt: string;
+  attachments?: any[];
 }
 
 /**
@@ -45,6 +46,7 @@ export async function notifyNewMessage(payload: NewMessagePayload): Promise<void
         content:         payload.content,
         content_type:    payload.contentType,
         created_at:      payload.createdAt,
+        attachments:     payload.attachments ?? [],
       },
       { headers, timeout: 3000 }
     );
@@ -61,18 +63,21 @@ export interface SystemEventPayload {
   metadata?: Record<string, any>;
 }
 
-export interface ConversationCreatedPayload {
+export interface NewConversationPayload {
   conversationId: string;
   type: string;
+  createdBy: string;
   memberIds: string[];
   title?: string;
-  createdBy?: string;
 }
 
-export async function notifyConversationCreated(payload: ConversationCreatedPayload): Promise<void> {
+/**
+ * Gửi notification về conversation mới tới realtime-service để thông báo đến từng member.
+ */
+export async function notifyNewConversation(payload: NewConversationPayload): Promise<void> {
   const realtimeUrl = config.realtimeService.url;
   if (!realtimeUrl) {
-    console.log('[notifier] REALTIME_SERVICE_URL not configured, skipping conversation created');
+    console.log('[notifier] REALTIME_SERVICE_URL not configured, skipping new conversation notification');
     return;
   }
 
@@ -83,20 +88,22 @@ export async function notifyConversationCreated(payload: ConversationCreatedPayl
     headers['x-internal-api-key'] = config.realtimeService.internalApiKey;
   }
 
+  const notifyEndpoint = `${realtimeUrl}/api/v1/internal/conversations/notify`;
+
   try {
     await axios.post(
-      `${realtimeUrl}/api/v1/internal/conversations/created`,
+      notifyEndpoint,
       {
         conversation_id: payload.conversationId,
         type: payload.type,
-        member_ids: payload.memberIds,
-        title: payload.title,
         created_by: payload.createdBy,
+        member_ids: payload.memberIds,
+        title: payload.title ?? '',
       },
       { headers, timeout: 3000 }
     );
   } catch (err: any) {
-    console.warn(`[notifier] Failed to notify conversation created:`, err.message);
+    console.warn(`[notifier] Failed to notify new conversation:`, err.message);
   }
 }
 

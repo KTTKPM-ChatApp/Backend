@@ -55,6 +55,8 @@ services:
     container_name: ktpm-auth-service
     restart: unless-stopped
     depends_on:
+      auth-service-db-init:
+        condition: service_completed_successfully
       mariadb:
         condition: service_healthy
     environment:
@@ -71,6 +73,29 @@ services:
       JWT_REFRESH_EXPIRES_IN: 30d
     ports:
       - "3001:3001"
+
+  auth-service-db-init:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: ktpm-auth-service-db-init
+    restart: "no"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      NODE_ENV: development
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: ${DB_PASS}
+      DB_NAME: auth_service
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 7d
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRES_IN: 30d
+    command: ["node", "dist/seed.js"]
 
   chat-service:
     build:

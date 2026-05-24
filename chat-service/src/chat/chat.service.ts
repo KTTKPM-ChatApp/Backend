@@ -322,6 +322,7 @@ export async function sendMessage(
     content: message.content,
     contentType: message.contentType,
     createdAt: message.createdAt.toISOString(),
+    attachments: normalizedAttachments,
   });
   
   // Publish to RabbitMQ for event-driven architecture

@@ -3,7 +3,9 @@ package chatapp.realtimeservice.service;
 import chatapp.realtimeservice.dto.ApiResponse;
 import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
+import chatapp.realtimeservice.dto.NewConversationRequest;
 import org.slf4j.Logger;
+import java.util.Map;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ public class MessageBroadcastService {
         }
 
         try {
+            // 1. Broadcast to conversation topic (for users who have this conversation open)
             simpMessagingTemplate.convertAndSend(
                     "/topic/conv." + notification.conversationId() + "/messages",
                     notification
@@ -45,6 +48,22 @@ public class MessageBroadcastService {
             }
 
             logger.info("Message {} broadcast to conversation {} via WebSocket", notification.messageId(), notification.conversationId());
+
+            // 2. Broadcast to each recipient's personal topic (for conversation list preview updates)
+            if (notification.receiverIds() != null && !notification.receiverIds().isEmpty()) {
+                for (String receiverId : notification.receiverIds()) {
+                    if (receiverId == null || receiverId.isBlank()) continue;
+                    try {
+                        simpMessagingTemplate.convertAndSend(
+                                "/topic/user-messages/" + receiverId,
+                                notification
+                        );
+                    } catch (Exception ex) {
+                        logger.warn("Failed to send user notification to {}: {}", receiverId, ex.getMessage());
+                    }
+                }
+            }
+
             return ApiResponse.ok(null, "Message notification sent successfully");
         } catch (Exception ex) {
             logger.error("Failed to broadcast message notification to conversation {}: {}", 
@@ -202,6 +221,45 @@ public class MessageBroadcastService {
         } catch (Exception ex) {
             logger.warn("Failed to broadcast system event in conv {}: {}",
                     conversationId, ex.getMessage());
+        }
+
+        // For MEMBER_REMOVED, also notify the removed user directly via their personal topic
+        if ("MEMBER_REMOVED".equals(systemEventType) && metadata instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> metaMap = (Map<String, Object>) metadata;
+            Object removedUserIdObj = metaMap.get("removed_user_id");
+            if (removedUserIdObj instanceof String removedUserId && !removedUserId.isBlank()) {
+                String userTopic = "/topic/user-conversations/" + removedUserId;
+                try {
+                    simpMessagingTemplate.convertAndSend(userTopic, Map.of(
+                            "type", "MEMBER_REMOVED",
+                            "conversation_id", conversationId,
+                            "removed_by", senderId
+                    ));
+                    logger.info("Sent MEMBER_REMOVED notification to user {}", removedUserId);
+                } catch (Exception ex) {
+                    logger.warn("Failed to notify removed user {}: {}", removedUserId, ex.getMessage());
+                }
+            }
+        }
+    }
+
+    public void broadcastNewConversation(NewConversationRequest request) {
+        if (request.memberIds() == null || request.memberIds().isEmpty()) {
+            logger.warn("No members to notify for new conversation: {}", request.conversationId());
+            return;
+        }
+
+        try {
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/new-conversations",
+                    request
+            );
+            logger.info("New conversation notification broadcast for {} with {} members",
+                    request.conversationId(), request.memberIds().size());
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast new conversation {}: {}",
+                    request.conversationId(), ex.getMessage());
         }
     }
 
