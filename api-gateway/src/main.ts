@@ -179,13 +179,14 @@ app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, 
 // Cloudinary signed upload (protected)
 app.post('/api/media/cloudinary-sign', authenticate, (req, res) => {
   try {
-    const { resourceType } = req.body;
+    const { resourceType, transformation } = req.body;
     const userId = (req as any).userId;
     const folder = `${config.cloudinary.uploadFolder}/${userId}`;
 
     const signResult = generateCloudinarySignature({
       resourceType: resourceType || 'auto',
       folder,
+      transformation,
     });
 
     res.json({ success: true, data: signResult });
