@@ -560,7 +560,7 @@ export async function addMembers(
 
   const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
 
-  notifyConversationCreated({
+  notifyNewConversation({
     conversationId,
     type: conversation?.type ?? 'GROUP',
     createdBy: userId,
