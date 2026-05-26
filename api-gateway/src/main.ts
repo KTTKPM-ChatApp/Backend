@@ -1,28 +1,48 @@
 import express from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import { config } from './config';
 import { authenticate } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
 import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
 import { generateCloudinarySignature } from './cloudinary';
+import { connectRedis } from './redis';
 
-// Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 10 * 1024 * 1024,
   },
 });
 
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many auth attempts, please try again later' },
+});
+
 const app = express();
+app.use(compression({ threshold: 1024 }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use('/api', limiter);
 
-// Auth routes (public)
-app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
-app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
+// Auth routes (public) - stricter rate limit
+app.post('/api/auth/register', authLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
+app.post('/api/auth/login', authLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
 app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
 app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
 app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
@@ -200,7 +220,7 @@ app.post('/api/media/cloudinary-sign', authenticate, (req, res) => {
 app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
 
 // Internal callback for chat-service to push real-time notifications
-app.post('/api/internal/message-callback', (req, res) => {
+app.post('/api/internal/message-callback', async (req, res) => {
   const apiKey = req.headers['x-internal-api-key'];
   if (!apiKey || apiKey !== config.internalApiKey) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -208,13 +228,13 @@ app.post('/api/internal/message-callback', (req, res) => {
   }
   const { conversationId, message } = req.body;
   if (conversationId && message) {
-    notifyConversation(conversationId, message);
+    await notifyConversation(conversationId, message);
   }
   res.json({ ok: true });
 });
 
 // Internal callback for new conversation created
-app.post('/api/internal/conversation-callback', (req, res) => {
+app.post('/api/internal/conversation-callback', async (req, res) => {
   const apiKey = req.headers['x-internal-api-key'];
   if (!apiKey || apiKey !== config.internalApiKey) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -222,13 +242,13 @@ app.post('/api/internal/conversation-callback', (req, res) => {
   }
   const { conversation } = req.body;
   if (conversation) {
-    notifyNewConversation(conversation);
+    await notifyNewConversation(conversation);
   }
   res.json({ ok: true });
 });
 
 // Internal callback for message read event
-app.post('/api/internal/message-read-callback', (req, res) => {
+app.post('/api/internal/message-read-callback', async (req, res) => {
   const apiKey = req.headers['x-internal-api-key'];
   if (!apiKey || apiKey !== config.internalApiKey) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -236,17 +256,25 @@ app.post('/api/internal/message-read-callback', (req, res) => {
   }
   const { conversationId, userId, messageId } = req.body;
   if (conversationId && userId && messageId) {
-    notifyMessageRead(conversationId, userId, messageId);
+    await notifyMessageRead(conversationId, userId, messageId);
   }
   res.json({ ok: true });
 });
 
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
-app.get('/api/presence/online', authenticate, (_, res) => {
-  res.json({ success: true, data: getOnlineUserIds() });
+app.get('/api/presence/online', authenticate, async (_, res) => {
+  const data = await getOnlineUserIds();
+  res.json({ success: true, data });
 });
 
-const httpServer = createServer(app);
-setupSocketIO(httpServer);
+async function bootstrap() {
+  await connectRedis();
+  const httpServer = createServer(app);
+  setupSocketIO(httpServer);
+  httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
+}
 
-httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
+bootstrap().catch((err) => {
+  console.error('Failed to start API Gateway:', err);
+  process.exit(1);
+});

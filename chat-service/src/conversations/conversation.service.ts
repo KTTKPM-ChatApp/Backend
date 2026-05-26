@@ -4,6 +4,7 @@ import {
   Conversation, 
   ConversationMember, 
   Message,
+  ConversationSummary,
   ConversationInvite,
   ConversationPoll,
   PollVote,
@@ -17,8 +18,14 @@ import {
   ConversationFeatures
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
-import { publishConversationCreated } from '../rabbitmq';
 import { notifyNewConversation, notifySystemEvent } from '../notifier';
+import { cacheGet, cacheSet, cacheDeletePattern, CONVERSATION_CACHE_TTL } from '../redis';
+
+function invalidateConversationListCache(memberIds: string[]) {
+  memberIds.forEach(memberId => {
+    cacheDeletePattern(`convlist:${memberId}:*`).catch(() => {});
+  });
+}
 
 async function resolveDisplayNames(userIds: string[]): Promise<Map<string, string>> {
   const map = await fetchUsersInfo(userIds);
@@ -66,6 +73,7 @@ async function persistAndNotifySystemEvent(
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
+const summaryRepo = () => AppDataSource.getRepository(ConversationSummary);
 const inviteRepo = () => AppDataSource.getRepository(ConversationInvite);
 const pollRepo = () => AppDataSource.getRepository(ConversationPoll);
 const voteRepo = () => AppDataSource.getRepository(PollVote);
@@ -115,8 +123,103 @@ function formatLastMessagePreview(msg: Message): string {
 }
 
 export async function listConversations(userId: string, page: number = 1, limit: number = 20) {
+  const cacheKey = `convlist:${userId}:${page}:${limit}`;
+  const cached = await cacheGet<{ data: any[]; meta: any }>(cacheKey);
+  if (cached) return cached;
+
   const offset = (page - 1) * limit;
-  
+
+  // Try read model first (conversation_summaries)
+  const summaries = await summaryRepo()
+    .createQueryBuilder('s')
+    .where('s.user_id = :userId', { userId })
+    .orderBy('s.last_message_at', 'DESC')
+    .addOrderBy('s.conversation_id', 'DESC')
+    .limit(limit)
+    .offset(offset)
+    .getMany();
+
+  if (summaries.length > 0) {
+    // Read model is populated — build response from summaries
+    const conversationIds = summaries.map(s => s.conversationId);
+    const members = await memberRepo()
+      .createQueryBuilder('m')
+      .where('m.conversation_id IN (:...ids)', { ids: conversationIds })
+      .getMany();
+
+    const memberMap = new Map<string, any[]>();
+    members.forEach(m => {
+      if (!memberMap.has(m.conversationId)) memberMap.set(m.conversationId, []);
+      memberMap.get(m.conversationId)!.push({
+        userId: m.userId,
+        displayName: null as string | null,
+        avatarUrl: null as string | null,
+        role: m.role,
+        isMuted: m.isMuted,
+        nickname: m.nickname,
+      });
+    });
+
+    const userIds = members.map(m => m.userId);
+    const userInfoMap = await fetchUsersInfo(userIds);
+    for (const [, convMembers] of memberMap) {
+      for (const m of convMembers) {
+        const info = userInfoMap.get(m.userId);
+        if (info) {
+          m.displayName = info.displayName;
+          m.avatarUrl = info.avatarUrl;
+        }
+      }
+    }
+
+    const pinned = await pinnedRepo()
+      .createQueryBuilder('p')
+      .where('p.conversation_id IN (:...ids) AND p.user_id = :userId', { ids: conversationIds, userId })
+      .getMany();
+    const pinnedSet = new Set(pinned.map(p => p.conversationId));
+
+    const result = {
+      data: summaries.map(s => {
+        const convMembers = memberMap.get(s.conversationId) || [];
+        const otherMember = convMembers.find((m: any) => m.userId !== userId);
+        let name = s.conversationTitle || 'Cuộc trò chuyện';
+        if (s.conversationType === 'DIRECT' && otherMember?.displayName) {
+          name = otherMember.displayName;
+        }
+        const lastMessage = s.lastMessageId ? {
+          id: s.lastMessageId,
+          content: s.lastMessagePreview || '',
+          createdAt: s.lastMessageAt,
+          senderId: s.lastSenderId,
+          senderName: s.lastSenderName || 'Người dùng',
+        } : undefined;
+        return {
+          id: s.conversationId,
+          type: s.conversationType,
+          title: s.conversationTitle,
+          avatarUrl: s.conversationAvatar,
+          name,
+          members: convMembers,
+          isPinned: pinnedSet.has(s.conversationId),
+          isMuted: (convMembers.find((m: any) => m.userId === userId) as any)?.isMuted ?? false,
+          lastMessage,
+        };
+      }),
+      meta: {
+        total: summaries.length,
+        page,
+        limit,
+        totalPages: Math.ceil(summaries.length / limit),
+        hasNext: summaries.length >= limit,
+        hasPrev: page > 1,
+      },
+    };
+
+    cacheSet(cacheKey, result, CONVERSATION_CACHE_TTL);
+    return result;
+  }
+
+  // Fallback: legacy query (read model not yet built — e.g. first deploy)
   const conversations = await conversationRepo()
     .createQueryBuilder('c')
     .innerJoin(ConversationMember, 'm', 'm.conversation_id = c.id AND m.user_id = :userId', { userId })
@@ -155,7 +258,9 @@ export async function listConversations(userId: string, page: number = 1, limit:
       userId: m.userId,
       displayName: null as string | null,
       avatarUrl: null as string | null,
-      role: m.role
+      role: m.role,
+      isMuted: m.isMuted,
+      nickname: m.nickname,
     };
     memberMap.get(m.conversationId)!.push(memberData);
   });
@@ -201,7 +306,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
     }
   }
 
-  return {
+  const result = {
     data: conversations.map(c => {
       const members = memberMap.get(c.id) || [];
       const otherMember = members.find(m => m.userId !== userId);
@@ -222,6 +327,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
         name,
         members,
         isPinned: pinnedSet.has(c.id),
+        isMuted: (members.find((m: any) => m.userId === userId) as any)?.isMuted ?? false,
         lastMessage,
       };
     }),
@@ -234,6 +340,9 @@ export async function listConversations(userId: string, page: number = 1, limit:
       hasPrev: page > 1
     }
   };
+
+  cacheSet(cacheKey, result, CONVERSATION_CACHE_TTL);
+  return result;
 }
 
 export async function getConversationById(userId: string, conversationId: string) {
@@ -340,14 +449,21 @@ export async function createGroupConversation(
   
   const members = await memberRepo().findBy({ conversationId: conversation.id });
 
-  // Publish conversation.created event
-  await publishConversationCreated({
-    conversationId: conversation.id,
-    type: 'GROUP',
-    createdBy,
-    memberIds: allMemberIds,
-    title: name.trim(),
-  });
+  // Eagerly seed conversation_summary for all members (visible immediately)
+  await Promise.allSettled(
+    allMemberIds.map(userId =>
+      summaryRepo().upsert({
+        userId,
+        conversationId: conversation.id,
+        conversationType: 'GROUP',
+        conversationTitle: name.trim(),
+        conversationAvatar: avatarUrl || undefined,
+      }, ['userId', 'conversationId'])
+    )
+  );
+
+  // Invalidate conversation list cache for all members
+  invalidateConversationListCache(allMemberIds);
 
   // Notify all members via realtime-service (STOMP)
   notifyNewConversation({
@@ -441,14 +557,20 @@ export async function createDirectConversation(
     role: m.role,
   }));
 
-  // Publish conversation.created event
-  await publishConversationCreated({
-    conversationId: conversation.id,
-    type: 'DIRECT',
-    createdBy,
-    memberIds,
-    title,
-  });
+  // Eagerly seed conversation_summary for both members
+  await Promise.allSettled(
+    memberIds.map(userId =>
+      summaryRepo().upsert({
+        userId,
+        conversationId: conversation.id,
+        conversationType: 'DIRECT',
+        conversationTitle: title,
+      }, ['userId', 'conversationId'])
+    )
+  );
+
+  // Invalidate conversation list cache for both members
+  invalidateConversationListCache(memberIds);
 
   return {
     ...conversation,
@@ -473,7 +595,25 @@ export async function updateConversation(
   
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
 
+  const members = await memberRepo().findBy({ conversationId });
+  const memberIds = members.map(m => m.userId);
+
   if (name !== undefined || avatarUrl !== undefined) {
+    // Update conversation summaries for all members
+    await Promise.allSettled(
+      memberIds.map(memberId =>
+        summaryRepo().upsert({
+          userId: memberId,
+          conversationId,
+          conversationTitle: name !== undefined ? name.trim() : undefined,
+          conversationAvatar: avatarUrl !== undefined ? avatarUrl : undefined,
+        }, ['userId', 'conversationId'])
+      )
+    );
+
+    // Invalidate cache for all members
+    invalidateConversationListCache(memberIds);
+    
     const updaterName = (await fetchUserInfo(userId))?.displayName ?? userId;
     const events: Array<{ type: string; metadata: Record<string, any> }> = [];
 
@@ -506,8 +646,6 @@ export async function updateConversation(
         .catch((err: any) => console.error('[updateConversation] persistAndNotifySystemEvent error:', err));
     }
   }
-  
-  const members = await memberRepo().findBy({ conversationId });
   
   return {
     ...conversation,
@@ -558,25 +696,24 @@ export async function addMembers(
     memberRepo().create({ conversationId, userId, role: 'MEMBER', joinedAt: new Date() })
   ));
 
-  const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
-
-  notifyNewConversation({
-    conversationId,
-    type: conversation?.type ?? 'GROUP',
-    createdBy: userId,
-    memberIds: newMemberIds,
-    title: conversation?.title,
-  }).catch((err: any) => console.error('[addMembers] notifyConversationCreated error:', err));
-
-  persistAndNotifySystemEvent(
-    conversationId,
-    userId,
-    'MEMBER_ADDED',
-    {
-      added_by_name: displayNames.get(userId)!,
-      added_members: newMemberIds.map((id: string) => ({ full_name: displayNames.get(id!) })),
-    }
+  // Seed conversation_summary for new members
+  await Promise.allSettled(
+    newMemberIds.map(memberId =>
+      summaryRepo().upsert({
+        userId: memberId,
+        conversationId,
+        conversationType: conversation?.type || 'GROUP',
+        conversationTitle: conversation?.title || undefined,
+        conversationAvatar: conversation?.avatarUrl || undefined,
+      }, ['userId', 'conversationId'])
+    )
   );
+
+  // Invalidate conversation list cache for ALL members (existing + new)
+  const allMemberIds = [...existingMembers.map(m => m.userId), ...newMemberIds];
+  invalidateConversationListCache(allMemberIds);
+
+  const displayNames = await resolveDisplayNames([userId, ...newMemberIds]);
 
   if (conversation) {
     notifyNewConversation({
@@ -587,6 +724,16 @@ export async function addMembers(
       title: conversation.title,
     }).catch((err: any) => console.error('[addMembers] notifyNewConversation error:', err));
   }
+
+  persistAndNotifySystemEvent(
+    conversationId,
+    userId,
+    'MEMBER_ADDED',
+    {
+      added_by_name: displayNames.get(userId)!,
+      added_members: newMemberIds.map((id: string) => ({ full_name: displayNames.get(id!) })),
+    }
+  );
 
   return { message: `Added ${newMemberIds.length} members successfully` };
 }
@@ -620,6 +767,11 @@ export async function removeMember(
   
   await memberRepo().delete({ conversationId, userId: memberId });
 
+  // Clean up summary for removed member
+  await summaryRepo().delete({ userId: memberId, conversationId }).catch(() => {});
+  // Invalidate cache for ALL members of the conversation
+  invalidateConversationListCache(allMembers.map(m => m.userId));
+
   const removerName = (await fetchUserInfo(userId))?.displayName ?? userId;
   const removedName = (await fetchUserInfo(memberId))?.displayName ?? memberId;
 
@@ -643,14 +795,19 @@ export async function leaveConversation(
 ) {
   const member = await checkMembership(userId, conversationId);
   
+  const allMembers = await memberRepo().findBy({ conversationId });
   if (member.role === 'OWNER') {
-    const allMembers = await memberRepo().findBy({ conversationId });
     if (allMembers.length > 1) {
       throw new Error('Owner cannot leave group with other members. Transfer ownership first.');
     }
   }
   
   await memberRepo().delete({ conversationId, userId });
+
+  // Clean up summary for leaving member
+  await summaryRepo().delete({ userId, conversationId }).catch(() => {});
+  // Invalidate cache for ALL members of the conversation
+  invalidateConversationListCache(allMembers.map(m => m.userId));
 
   const leftName = (await fetchUserInfo(userId))?.displayName ?? userId;
 
@@ -759,6 +916,9 @@ export async function updateUserSettings(
   if (isMuted !== undefined) updateData.isMuted = isMuted;
   
   await memberRepo().update({ conversationId, userId }, updateData);
+  
+  // Invalidate cache so muted/nickname reflects immediately
+  invalidateConversationListCache([userId]);
   
   const updatedMember = await memberRepo().findOneBy({ conversationId, userId });
   
@@ -887,6 +1047,31 @@ export async function acceptInvite(
     role: 'MEMBER',
     joinedAt: new Date()
   }));
+
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+
+  // Seed summary for new member
+  await summaryRepo().upsert({
+    userId,
+    conversationId,
+    conversationType: conversation?.type || 'GROUP',
+    conversationTitle: conversation?.title || undefined,
+    conversationAvatar: conversation?.avatarUrl || undefined,
+  }, ['userId', 'conversationId']);
+
+  // Invalidate cache for the accepting user
+  invalidateConversationListCache([userId]);
+
+  // Notify new member about the conversation
+  if (conversation) {
+    notifyNewConversation({
+      conversationId,
+      type: conversation.type,
+      createdBy: conversation.createdBy,
+      memberIds: [userId],
+      title: conversation.title,
+    }).catch((err: any) => console.error('[acceptInvite] notifyNewConversation error:', err));
+  }
   
   // Update invite status
   await inviteRepo().update(inviteId, { 
@@ -1458,6 +1643,9 @@ export async function pinConversation(
     conversationId,
     pinnedAt: new Date()
   }));
+
+  // Invalidate cache so pinned status reflects immediately
+  invalidateConversationListCache([userId]);
   
   return { message: 'Conversation pinned' };
 }
@@ -1474,6 +1662,9 @@ export async function unpinConversation(
   }
   
   await pinnedRepo().delete({ userId, conversationId });
+
+  // Invalidate cache so unpinned status reflects immediately
+  invalidateConversationListCache([userId]);
   
   return { message: 'Conversation unpinned' };
 }
@@ -1519,6 +1710,10 @@ export async function disbandGroup(
     throw new Error('Cannot disband direct conversation');
   }
 
+  // Get all members before deleting
+  const allMembers = await memberRepo().findBy({ conversationId });
+  const allMemberIds = allMembers.map(m => m.userId);
+
   const disbandName = (await fetchUserInfo(userId))?.displayName ?? userId;
 
   persistAndNotifySystemEvent(
@@ -1527,6 +1722,9 @@ export async function disbandGroup(
     'GROUP_DISBANDED',
     { disbanded_by_name: disbandName }
   );
+
+  // Invalidate cache for all members
+  invalidateConversationListCache(allMemberIds);
 
   // Remove all members
   await memberRepo().delete({ conversationId });

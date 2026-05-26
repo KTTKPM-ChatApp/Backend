@@ -403,6 +403,7 @@ export async function pinMessage(
       id: message.id,
       content: message.content,
       senderId: message.senderId,
+      attachments: message.attachments,
       createdAt: toEpoch(message.createdAt),
     }
   };

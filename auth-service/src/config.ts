@@ -15,4 +15,7 @@ export const config = {
     refreshSecret: process.env.JWT_REFRESH_SECRET!,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
   },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
+  },
 };

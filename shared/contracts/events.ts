@@ -8,6 +8,8 @@ export const RABBITMQ = {
     TYPING_STOP: 'chat.typing.stop',
     USER_ONLINE: 'chat.user.online',
     USER_OFFLINE: 'chat.user.offline',
+    USER_CREATED: 'user.created',
+    USER_UPDATED: 'user.updated',
   } as const,
 } as const;
 
@@ -23,10 +25,13 @@ export interface MessageSentPayload {
   messageId: string;
   conversationId: string;
   senderId: string;
+  senderName: string;
   content: string;
   contentType: string;
   createdAt: string;
   attachments?: any[];
+  receiverIds: string[];
+  allMemberIds: string[];
 }
 
 export interface ConversationCreatedPayload {

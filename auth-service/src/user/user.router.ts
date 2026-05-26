@@ -15,6 +15,37 @@ router.get('/me', authenticate, async (req: AuthReq, res: Response) => {
 });
 
 /**
+ * GET /users/all
+ * No auth — returns all active users, used by chat-service for initial sync
+ */
+router.get('/all', async (_req: AuthReq, res: Response) => {
+  try {
+    const users = await userService.getAll();
+    res.json({ success: true, data: users });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+/**
+ * GET /users/batch?ids=id1,id2,id3
+ * No auth — used by chat-service for batch user lookup
+ */
+router.get('/batch',
+  [query('ids').isString().notEmpty()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const ids = (req.query.ids as string).split(',').filter(Boolean);
+      const users = await userService.getByIds(ids);
+      res.json({ success: true, data: users });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+);
+
+/**
  * GET /users/search
  * @header Authorization Bearer <accessToken>
  * @query  q      string (required)

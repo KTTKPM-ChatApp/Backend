@@ -1,4 +1,9 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
+import http from 'http';
+import https from 'https';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 20 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 20 });
 
 export class ClientError extends Error {
   constructor(
@@ -30,6 +35,8 @@ export abstract class BaseClient {
       headers: { 'Content-Type': 'application/json', ...config.headers },
       params: config.params,
       data: config.data,
+      httpAgent,
+      httpsAgent,
       timeout: config.timeout ?? 5000,
       validateStatus: () => true,
     };

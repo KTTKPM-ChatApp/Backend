@@ -5,6 +5,8 @@ import { AppDataSource, ensureDatabase } from './db';
 import { config } from './config';
 import { connectRabbitMQ, closeRabbitMQ, getRabbitMQStatus } from './rabbitmq';
 import { connectRedis, closeRedis, getRedisStatus } from './redis';
+import { startEventConsumer } from './events/consumer';
+import { syncAllUsers } from './events/user-sync';
 import chatRouter from './chat/chat.router';
 import messageRouter from './messages/message.router';
 
@@ -103,6 +105,8 @@ async function bootstrap() {
 
     await connectRabbitMQ();
     await connectRedis();
+    await startEventConsumer();
+    syncAllUsers().catch(err => console.warn('[boot] syncAllUsers error:', err));
 
     app.listen(config.port, () => {
       console.log(`chat-service running on port ${config.port}`);
