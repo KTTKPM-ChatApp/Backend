@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { DataSource, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { DataSource, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { config } from './config';
 
 @Entity('users')
@@ -29,6 +29,8 @@ export class RefreshToken {
 }
 
 @Entity('friend_requests')
+@Index(['senderId', 'status'])
+@Index(['receiverId', 'status'])
 export class FriendRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'sender_id' }) senderId!: string;
@@ -40,6 +42,8 @@ export class FriendRequest {
 }
 
 @Entity('friendships')
+@Index(['userId'])
+@Index(['friendId'])
 export class Friendship {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'user_id' }) userId!: string;
@@ -48,6 +52,7 @@ export class Friendship {
 }
 
 @Entity('blocks')
+@Index(['blockerId', 'blockedId'])
 export class Block {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ name: 'blocker_id' }) blockerId!: string;

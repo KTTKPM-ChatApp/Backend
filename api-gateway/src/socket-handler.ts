@@ -1,35 +1,14 @@
-import { Server as HTTPServer } from 'http';
+import { Server as HTTPServer, Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from './config';
 import axios from 'axios';
+import * as presence from './redis';
 
-const onlineUsers = new Map<string, Set<string>>();
+const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 20 });
+const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 20 });
 let io: Server | null = null;
-
-function getConnectedSocketIds(userId: string): string[] {
-  return Array.from(onlineUsers.get(userId) ?? []);
-}
-
-function addOnlineUser(userId: string, socketId: string) {
-  if (!onlineUsers.has(userId)) {
-    onlineUsers.set(userId, new Set());
-  }
-  onlineUsers.get(userId)!.add(socketId);
-}
-
-function removeOnlineUser(userId: string, socketId: string) {
-  const sockets = onlineUsers.get(userId);
-  if (!sockets) return;
-  sockets.delete(socketId);
-  if (sockets.size === 0) {
-    onlineUsers.delete(userId);
-  }
-}
-
-function isUserOnline(userId: string): boolean {
-  return onlineUsers.has(userId) && (onlineUsers.get(userId)?.size ?? 0) > 0;
-}
 
 export function setupSocketIO(httpServer: HTTPServer): Server {
   const srv = new Server(httpServer, {
@@ -59,7 +38,7 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
   srv.on('connection', (socket: Socket) => {
     const userId = (socket as any).userId as string;
 
-    addOnlineUser(userId, socket.id);
+    presence.presenceAdd(userId, socket.id);
     srv.emit('presence:online', { userId });
 
     socket.on('chat:join', (data: { conversation_id: string }) => {
@@ -88,6 +67,8 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
             'Content-Type': 'application/json',
             'x-user-id': userId,
           },
+          httpAgent,
+          httpsAgent,
           validateStatus: () => true,
         });
 
@@ -138,16 +119,15 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
       }
     });
 
-    socket.on('presence:heartbeat', () => {
-      addOnlineUser(userId, socket.id);
+    socket.on('presence:heartbeat', async () => {
+      await presence.presenceHeartbeat(userId, socket.id);
     });
 
-    socket.on('disconnect', () => {
-      removeOnlineUser(userId, socket.id);
+    socket.on('disconnect', async () => {
+      await presence.presenceRemove(userId, socket.id);
       srv.emit('presence:offline', { userId });
     });
 
-    // Handle conversation:created event (from RabbitMQ or internal)
     socket.on('conversation:join', (data: { conversation_id: string }) => {
       if (data?.conversation_id) {
         socket.join(`conversation:${data.conversation_id}`);
@@ -160,7 +140,6 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
       }
     });
 
-    // Handle message read receipts
     socket.on('message:read', async (data: { conversation_id: string; message_id: string }) => {
       if (data?.conversation_id && data?.message_id) {
         try {
@@ -171,10 +150,11 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
               'Content-Type': 'application/json',
               'x-user-id': userId,
             },
+            httpAgent,
+            httpsAgent,
             validateStatus: () => true,
           });
-          
-          // Broadcast to conversation members
+
           socket.broadcast.to(`conversation:${data.conversation_id}`).emit('message:read', {
             userId,
             conversationId: data.conversation_id,
@@ -191,25 +171,24 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
   return srv;
 }
 
-export function notifyConversation(conversationId: string, message: any) {
+export async function notifyConversation(conversationId: string, message: any) {
   if (io) {
     io.to(`conversation:${conversationId}`).emit('chat:new', message);
   }
 }
 
-export function notifyNewConversation(conversation: any) {
+export async function notifyNewConversation(conversation: any) {
   if (io && conversation?.memberIds) {
-    // Notify all members of the new conversation
-    conversation.memberIds.forEach((memberId: string) => {
-      const socketIds = getConnectedSocketIds(memberId);
+    for (const memberId of conversation.memberIds) {
+      const socketIds = await presence.getConnectedSocketIds(memberId);
       socketIds.forEach((socketId) => {
         io?.to(socketId).emit('conversation:created', conversation);
       });
-    });
+    }
   }
 }
 
-export function notifyMessageRead(conversationId: string, userId: string, messageId: string) {
+export async function notifyMessageRead(conversationId: string, userId: string, messageId: string) {
   if (io) {
     io.to(`conversation:${conversationId}`).emit('message:read', {
       userId,
@@ -220,8 +199,10 @@ export function notifyMessageRead(conversationId: string, userId: string, messag
   }
 }
 
-export function getOnlineUserIds(): string[] {
-  return Array.from(onlineUsers.keys());
+export async function getOnlineUserIds(): Promise<string[]> {
+  return presence.getOnlineUserIds();
 }
 
-export { isUserOnline };
+export async function isUserOnline(userId: string): Promise<boolean> {
+  return presence.isUserOnline(userId);
+}

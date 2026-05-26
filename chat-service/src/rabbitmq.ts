@@ -1,5 +1,7 @@
 import amqp from 'amqplib';
 import { config } from './config';
+import { RABBITMQ } from '../shared/contracts/events';
+export { RABBITMQ };
 
 let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
@@ -78,6 +80,42 @@ export async function publishEvent(routingKey: string, payload: any): Promise<bo
   }
 }
 
+export async function startConsumer(
+  handler: (routingKey: string, payload: any) => Promise<void>,
+): Promise<void> {
+  if (!channel || !rabbitConnected) {
+    console.warn('RabbitMQ not connected, cannot start consumer');
+    return;
+  }
+
+  try {
+    const queue = await channel.assertQueue('chat-service.cqrs', {
+      durable: true,
+      exclusive: false,
+      autoDelete: false,
+    });
+
+    await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_SENT);
+    await channel.bindQueue(queue.queue, EXCHANGE_NAME, 'user.*');
+
+    await channel.consume(queue.queue, async (msg) => {
+      if (!msg) return;
+      try {
+        const payload = JSON.parse(msg.content.toString());
+        await handler(msg.fields.routingKey, payload);
+        channel!.ack(msg);
+      } catch (error) {
+        console.error('[Consumer] Error processing event:', error);
+        channel!.nack(msg, false, false);
+      }
+    });
+
+    console.log(`[Consumer] Listening on queue="${queue.queue}" for exchange="${EXCHANGE_NAME}"`);
+  } catch (error) {
+    console.error('Failed to start consumer:', error);
+  }
+}
+
 // Event types and publishers
 export interface ChatEvent {
   event: string;
@@ -89,30 +127,23 @@ export async function publishNewMessage(payload: {
   messageId: string;
   conversationId: string;
   senderId: string;
+  senderName: string;
   content: string;
   contentType: string;
+  createdAt: string;
+  attachments?: any[];
+  receiverIds: string[];
+  allMemberIds: string[];
+  conversationType?: string;
+  conversationTitle?: string;
+  conversationAvatar?: string;
 }): Promise<boolean> {
   const event: ChatEvent = {
     event: 'message.sent',
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.message.sent', event);
-}
-
-export async function publishConversationCreated(payload: {
-  conversationId: string;
-  type: 'DIRECT' | 'GROUP';
-  createdBy: string;
-  memberIds: string[];
-  title?: string;
-}): Promise<boolean> {
-  const event: ChatEvent = {
-    event: 'conversation.created',
-    timestamp: new Date().toISOString(),
-    data: payload,
-  };
-  return publishEvent('chat.conversation.created', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_SENT, event);
 }
 
 export async function publishMessageRead(payload: {
@@ -126,7 +157,7 @@ export async function publishMessageRead(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.message.read', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_READ, event);
 }
 
 export async function publishUserOnline(payload: {
@@ -138,7 +169,7 @@ export async function publishUserOnline(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent('chat.user.online', event);
+  return publishEvent(RABBITMQ.ROUTING_KEYS.USER_ONLINE, event);
 }
 
 export async function publishTyping(payload: {
@@ -151,5 +182,8 @@ export async function publishTyping(payload: {
     timestamp: new Date().toISOString(),
     data: payload,
   };
-  return publishEvent(`chat.typing.${payload.isTyping ? 'start' : 'stop'}`, event);
+  return publishEvent(
+    payload.isTyping ? RABBITMQ.ROUTING_KEYS.TYPING_START : RABBITMQ.ROUTING_KEYS.TYPING_STOP,
+    event,
+  );
 }

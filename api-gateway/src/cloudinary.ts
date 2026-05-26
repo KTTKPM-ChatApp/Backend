@@ -38,6 +38,7 @@ export function generateCloudinarySignature(
     apiKey: config.cloudinary.apiKey,
     cloudName: config.cloudinary.cloudName,
     folder: params.folder || null,
+    transformation: params.transformation || null,
     uploadUrl: `https://api.cloudinary.com/v1_1/${config.cloudinary.cloudName}/${resourceType}/upload`,
     resourceType,
   };

@@ -1,4 +1,5 @@
 import { AppDataSource, User, Friendship, FriendRequest } from '../db';
+import { publishUserUpdated } from '../rabbitmq';
 
 const userRepo = () => AppDataSource.getRepository(User);
 const friendshipRepo = () => AppDataSource.getRepository(Friendship);
@@ -12,10 +13,24 @@ export async function getById(id: string) {
   return strip(user);
 }
 
+export async function getByIds(ids: string[]) {
+  if (!ids.length) return [];
+  const users = await userRepo()
+    .createQueryBuilder('u')
+    .where('u.id IN (:...ids)', { ids })
+    .getMany();
+  return users.map(strip);
+}
+
+export async function getAll() {
+  const users = await userRepo().find({ where: { isActive: true } });
+  return users.map(strip);
+}
+
 export async function search(q: string, limit = 20, offset = 0, currentUserId?: string) {
   const users = await userRepo()
     .createQueryBuilder('u')
-    .where('u.display_name LIKE :q AND u.isActive = true', { q: `%${q}%` })
+    .where('u.display_name LIKE :q AND u.is_active = true', { q: `%${q}%` })
     .limit(limit).offset(offset)
     .getMany();
 
@@ -47,15 +62,24 @@ export async function search(q: string, limit = 20, offset = 0, currentUserId?: 
 }
 
 export async function updateById(id: string, updates: Partial<User>) {
-  // Chỉ update các trường được cung cấp
-  // Cho phép avatarUrl null để xóa avatar
-  
-  // Xử lý dateOfBirth: nếu là string, chuyển thành Date
   const processedUpdates = { ...updates };
   if (updates.dateOfBirth && typeof updates.dateOfBirth === 'string') {
     processedUpdates.dateOfBirth = new Date(updates.dateOfBirth);
   }
-  
+
   await userRepo().update(id, processedUpdates);
+
+  publishUserUpdated(id, {
+    id,
+    username: processedUpdates.username,
+    displayName: processedUpdates.displayName,
+    avatarUrl: processedUpdates.avatarUrl,
+    email: processedUpdates.email,
+    isActive: processedUpdates.isActive,
+    bio: processedUpdates.bio,
+    gender: processedUpdates.gender,
+    phone: processedUpdates.phone,
+  }).catch(() => {});
+
   return await getById(id);
 }

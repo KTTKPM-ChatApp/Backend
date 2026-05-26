@@ -1,167 +1,12 @@
 import { v4 as uuid } from 'uuid';
-import { AppDataSource, Conversation, ConversationMember, Message, User } from '../db';
-import { notifyNewMessage } from '../notifier';
-import { fetchUserInfo } from '../auth-client';
+import { AppDataSource, Conversation, ConversationMember, Message, ConversationSummary, User } from '../db';
 import { publishNewMessage } from '../rabbitmq';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
+const summaryRepo = () => AppDataSource.getRepository(ConversationSummary);
 const userRepo = () => AppDataSource.getRepository(User);
-
-function buildDirectKey(userId1: string, userId2: string): string {
-  return [userId1, userId2].sort().join(':');
-}
-
-export async function createConversation(
-  currentUserId: string,
-  type: 'DIRECT' | 'GROUP',
-  participantIds: string[],
-  title?: string
-) {
-  const uniqueParticipants = [...new Set(participantIds.filter(id => id !== currentUserId))];
-  
-  if (type === 'DIRECT') {
-    if (uniqueParticipants.length !== 1) {
-      throw new Error('Direct conversation requires exactly one other participant');
-    }
-    
-    const otherUserId = uniqueParticipants[0];
-    const directKey = buildDirectKey(currentUserId, otherUserId);
-    const existing = await conversationRepo().findOneBy({ directKey });
-    if (existing) {
-      const members = await memberRepo().findBy({ conversationId: existing.id });
-      return { ...existing, memberIds: members.map(m => m.userId) };
-    }
-    
-    const userInfo = await fetchUserInfo(otherUserId);
-    const convTitle = userInfo?.displayName ?? otherUserId;
-
-    const conversation = conversationRepo().create({
-      id: uuid(),
-      type,
-      title: convTitle,
-      createdBy: currentUserId,
-      directKey,
-    });
-    await conversationRepo().save(conversation);
-    
-    const memberIds = [currentUserId, otherUserId];
-    await memberRepo().save(memberIds.map(userId => 
-      memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
-    ));
-    
-    return { ...conversation, memberIds };
-  }
-  
-  // GROUP
-  if (!title?.trim()) {
-    throw new Error('Group conversation requires a title');
-  }
-  if (uniqueParticipants.length < 2) {
-    throw new Error('Group conversation requires at least 2 other participants');
-  }
-  
-  const conversation = conversationRepo().create({
-    id: uuid(),
-    type,
-    title: title.trim(),
-    createdBy: currentUserId,
-  });
-  await conversationRepo().save(conversation);
-  
-  const memberIds = [currentUserId, ...uniqueParticipants];
-  await memberRepo().save(memberIds.map(userId => 
-    memberRepo().create({ conversationId: conversation.id, userId, joinedAt: new Date() })
-  ));
-  
-  return { ...conversation, memberIds };
-}
-
-export async function listConversations(userId: string, limit = 20, offset = 0) {
-  const conversations = await conversationRepo()
-    .createQueryBuilder('c')
-    .innerJoin(ConversationMember, 'm', 'm.conversation_id = c.id AND m.user_id = :userId', { userId })
-    .orderBy('COALESCE(c.last_message_at, c.updated_at)', 'DESC')
-    .addOrderBy('c.id', 'DESC')
-    .limit(limit)
-    .offset(offset)
-    .getMany();
-  
-  const conversationIds = conversations.map(c => c.id);
-  if (conversationIds.length === 0) return [];
-  
-  const members = await memberRepo()
-    .createQueryBuilder('m')
-    .where('m.conversation_id IN (:...ids)', { ids: conversationIds })
-    .getMany();
-  
-  const memberMap = new Map<string, string[]>();
-  members.forEach(m => {
-    if (!memberMap.has(m.conversationId)) memberMap.set(m.conversationId, []);
-    memberMap.get(m.conversationId)!.push(m.userId);
-  });
-  
-  // Fetch last messages for conversations that have them
-  const lastMessageIds = conversations.map(c => c.lastMessageId).filter(Boolean) as string[];
-  const lastMessagesMap = new Map<string, any>();
-  
-  if (lastMessageIds.length > 0) {
-    const lastMessages = await messageRepo()
-      .createQueryBuilder('msg')
-      .where('msg.id IN (:...ids)', { ids: lastMessageIds })
-      .getMany();
-    
-    // Get unique sender IDs from messages
-    const senderIds = [...new Set(lastMessages.map(msg => msg.senderId))];
-    const usersMap = new Map<string, any>();
-    
-    if (senderIds.length > 0) {
-      const users = await userRepo()
-        .createQueryBuilder('u')
-        .where('u.id IN (:...ids)', { ids: senderIds })
-        .getMany();
-      
-      users.forEach(user => {
-        usersMap.set(user.id, {
-          id: user.id,
-          displayName: user.displayName,
-          username: user.username,
-          avatarUrl: user.avatarUrl,
-        });
-      });
-    }
-    
-    lastMessages.forEach(msg => {
-      const messageWithSender = {
-        ...msg,
-        sender: usersMap.get(msg.senderId) || null,
-      };
-      lastMessagesMap.set(msg.id, messageWithSender);
-    });
-  }
-  
-  return conversations.map(c => {
-    const lastMessage = c.lastMessageId ? lastMessagesMap.get(c.lastMessageId) : null;
-    return {
-      ...c,
-      memberIds: memberMap.get(c.id) || [],
-      lastMessage: lastMessage ? {
-        id: lastMessage.id,
-        content: lastMessage.content,
-        contentType: lastMessage.contentType,
-        createdAt: lastMessage.createdAt.getTime(),
-        senderId: lastMessage.senderId,
-        sender: lastMessage.sender ? {
-          id: lastMessage.sender.id,
-          displayName: lastMessage.sender.displayName,
-          username: lastMessage.sender.username,
-          avatarUrl: lastMessage.sender.avatarUrl,
-        } : null,
-      } : null,
-    };
-  });
-}
 
 export async function getConversationMessages(
   userId: string,
@@ -289,22 +134,12 @@ export async function sendMessage(
   });
   await messageRepo().save(message);
   console.log(`[sendMessage] saved message ${message.id}, contentType=${detectedContentType}, attachments=${normalizedAttachments.length}`);
-  
-  // Update last message
-  await conversationRepo().update(conversationId, {
-    lastMessageId: message.id,
-    lastMessagePreview: trimmedContent.slice(0, 255),
-    lastMessageAt: message.createdAt,
-    updatedAt: message.createdAt,
-  });
-  
-  // Get all participants
+
+  // Get members + sender name for event payload (command context)
   const members = await memberRepo().findBy({ conversationId });
   const participantIds = members.map(m => m.userId);
-  
-  // Gửi notification real-time tới tất cả participants (trừ sender)
   const receiverIds = participantIds.filter(id => id !== userId);
-  
+
   let senderName = 'Người dùng';
   try {
     const sender = await userRepo().findOneBy({ id: userId });
@@ -312,28 +147,43 @@ export async function sendMessage(
   } catch (err) {
     console.warn('[sendMessage] senderName lookup failed:', err);
   }
-  
-  await notifyNewMessage({
+
+  // Eagerly update conversation_summary for all members (visible immediately)
+  const preview = trimmedContent.slice(0, 255);
+  await Promise.allSettled(
+    participantIds.map(memberId =>
+      summaryRepo().upsert({
+        userId: memberId,
+        conversationId: conversation.id,
+        lastMessageId: message.id,
+        lastMessagePreview: preview,
+        lastMessageAt: message.createdAt,
+        lastSenderId: userId,
+        lastSenderName: senderName,
+        conversationType: conversation.type,
+        conversationTitle: conversation.title,
+        conversationAvatar: conversation.avatarUrl,
+      }, ['userId', 'conversationId'])
+    )
+  );
+
+  // Publish event → consumer builds read model + invalidates cache + notifies async
+  await publishNewMessage({
     messageId: message.id,
+    conversationId: conversation.id,
     senderId: userId,
     senderName,
-    receiverIds,
-    conversationId: conversation.id,
     content: message.content,
     contentType: message.contentType,
     createdAt: message.createdAt.toISOString(),
     attachments: normalizedAttachments,
+    receiverIds,
+    allMemberIds: participantIds,
+    conversationType: conversation.type,
+    conversationTitle: conversation.title,
+    conversationAvatar: conversation.avatarUrl,
   });
-  
-  // Publish to RabbitMQ for event-driven architecture
-  await publishNewMessage({
-    messageId: message.id,
-    senderId: userId,
-    conversationId: conversation.id,
-    content: message.content,
-    contentType: message.contentType,
-  });
-  
+
   return message;
 }
 

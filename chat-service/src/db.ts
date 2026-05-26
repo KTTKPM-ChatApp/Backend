@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { DataSource, Entity, PrimaryColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import { DataSource, Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { config } from './config';
 
 @Entity('conversations')
@@ -35,6 +35,7 @@ export class ConversationMember {
 
 @Entity('messages')
 @Index(['conversationId', 'createdAt', 'id'])
+@Index(['conversationId', 'senderId'])
 export class Message {
   @PrimaryColumn('varchar', { length: 36 }) id!: string;
   @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
@@ -212,6 +213,24 @@ export interface ConversationFeatures {
   reactions: boolean;
 }
 
+@Entity('conversation_summaries')
+@Index(['userId', 'lastMessageAt'])
+export class ConversationSummary {
+  @PrimaryColumn('varchar', { length: 36, name: 'user_id' }) userId!: string;
+  @PrimaryColumn('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
+  @Column('varchar', { length: 36, nullable: true, name: 'last_message_id' }) lastMessageId?: string;
+  @Column('text', { nullable: true, name: 'last_message_preview' }) lastMessagePreview?: string;
+  @Column('datetime', { nullable: true, name: 'last_message_at' }) lastMessageAt?: Date;
+  @Column('varchar', { length: 36, nullable: true, name: 'last_sender_id' }) lastSenderId?: string;
+  @Column('varchar', { length: 255, nullable: true, name: 'last_sender_name' }) lastSenderName?: string;
+  @Column('int', { default: 0, name: 'unread_count' }) unreadCount!: number;
+  @Column('varchar', { length: 36, nullable: true, name: 'conversation_type' }) conversationType?: string;
+  @Column('varchar', { length: 255, nullable: true }) conversationTitle?: string;
+  @Column('varchar', { length: 500, nullable: true, name: 'conversation_avatar' }) conversationAvatar?: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
 @Entity('message_attachments')
 export class MessageAttachment {
   @PrimaryColumn('varchar', { length: 36 }) id!: string;
@@ -246,7 +265,7 @@ export const AppDataSource = new DataSource({
   ...config.db,
   synchronize: process.env.NODE_ENV !== 'production',
   logging: false,
-entities: [
+  entities: [
     Conversation, 
     ConversationMember, 
     Message,
@@ -260,9 +279,16 @@ entities: [
     ConversationSettings,
     UserPinnedConversation,
     MessageRead,
+    ConversationSummary,
     User,
   ],
   connectorPackage: 'mysql2',
+  extra: {
+    connectionLimit: 20,
+    acquireTimeout: 60000,
+    waitForConnections: true,
+    queueLimit: 0,
+  },
 });
 
 export async function ensureDatabase() {

@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { AppDataSource, User, RefreshToken } from '../db';
 import { config } from '../config';
+import { publishUserCreated } from '../rabbitmq';
 
 interface JwtPayload {
   sub: string;
@@ -36,6 +37,17 @@ export async function register(username: string, email: string, password: string
     passwordHash: await bcrypt.hash(password, 10),
   });
   const saved = await userRepo().save(user);
+  publishUserCreated({
+    id: saved.id,
+    username: saved.username,
+    displayName: saved.displayName,
+    avatarUrl: saved.avatarUrl,
+    email: saved.email,
+    isActive: saved.isActive,
+    bio: saved.bio,
+    gender: saved.gender,
+    phone: saved.phone,
+  }).catch(() => {});
   const { passwordHash: _, ...pub } = saved;
   return pub;
 }

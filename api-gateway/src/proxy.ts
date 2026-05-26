@@ -1,6 +1,11 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 import { AuthReq } from './middleware';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
 
 export async function proxy(req: Request | AuthReq, res: Response, url: string, addUserId = false) {
   try {
@@ -8,7 +13,6 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'];
     if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
     
-    // Always add x-user-id for chat-service endpoints
     const userId = (req as AuthReq).userId;
     
     if (addUserId && userId) {
@@ -21,6 +25,8 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
       data: req.body,
       params: req.query,
       headers,
+      httpAgent,
+      httpsAgent,
       validateStatus: () => true,
     });
 

@@ -14,4 +14,9 @@ export const config = {
     apiSecret: process.env.CLOUDINARY_API_SECRET!,
     uploadFolder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'zalo-chat',
   },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
+  },
 };
