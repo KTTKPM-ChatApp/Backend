@@ -10,6 +10,7 @@ export interface NewMessagePayload {
   contentType: string;
   createdAt: string;
   attachments?: any[];
+  replyToId?: string | null;
 }
 
 export interface SystemEventPayload {
@@ -68,6 +69,7 @@ export class RealtimeClientService extends BaseClient {
           content_type: payload.contentType,
           created_at: payload.createdAt,
           attachments: payload.attachments ?? [],
+          reply_to_id: payload.replyToId ?? null,
         },
         timeout: 3000,
       });

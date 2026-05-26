@@ -15,6 +15,7 @@ public record MessageNotificationRequest(
         @JsonProperty("content_type") String contentType,
         @JsonProperty("created_at") String createdAt,
         @JsonProperty("attachments") List<Map<String, Object>> attachments,
-        @JsonProperty("metadata") Object metadata
+        @JsonProperty("metadata") Object metadata,
+        @JsonProperty("reply_to_id") String replyToId
 ) {
 }

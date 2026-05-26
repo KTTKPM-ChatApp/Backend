@@ -1,11 +1,10 @@
 import { v4 as uuid } from 'uuid';
-import { AppDataSource, Conversation, ConversationMember, Message, ConversationSummary, User } from '../db';
+import { AppDataSource, Conversation, ConversationMember, Message, User } from '../db';
 import { publishNewMessage } from '../rabbitmq';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
-const summaryRepo = () => AppDataSource.getRepository(ConversationSummary);
 const userRepo = () => AppDataSource.getRepository(User);
 
 export async function getConversationMessages(
@@ -135,53 +134,22 @@ export async function sendMessage(
   await messageRepo().save(message);
   console.log(`[sendMessage] saved message ${message.id}, contentType=${detectedContentType}, attachments=${normalizedAttachments.length}`);
 
-  // Get members + sender name for event payload (command context)
-  const members = await memberRepo().findBy({ conversationId });
-  const participantIds = members.map(m => m.userId);
-  const receiverIds = participantIds.filter(id => id !== userId);
-
-  let senderName = 'Người dùng';
-  try {
-    const sender = await userRepo().findOneBy({ id: userId });
-    if (sender) senderName = sender.displayName;
-  } catch (err) {
-    console.warn('[sendMessage] senderName lookup failed:', err);
-  }
-
-  // Eagerly update conversation_summary for all members (visible immediately)
-  const preview = trimmedContent.slice(0, 255);
-  await Promise.allSettled(
-    participantIds.map(memberId =>
-      summaryRepo().upsert({
-        userId: memberId,
-        conversationId: conversation.id,
-        lastMessageId: message.id,
-        lastMessagePreview: preview,
-        lastMessageAt: message.createdAt,
-        lastSenderId: userId,
-        lastSenderName: senderName,
-        conversationType: conversation.type,
-        conversationTitle: conversation.title,
-        conversationAvatar: conversation.avatarUrl,
-      }, ['userId', 'conversationId'])
-    )
-  );
-
-  // Publish event → consumer builds read model + invalidates cache + notifies async
-  await publishNewMessage({
+  // Publish event → consumer handles summary update + Redis cache + realtime notification
+  publishNewMessage({
     messageId: message.id,
     conversationId: conversation.id,
     senderId: userId,
-    senderName,
+    senderName: '', // resolved by consumer
     content: message.content,
     contentType: message.contentType,
     createdAt: message.createdAt.toISOString(),
     attachments: normalizedAttachments,
-    receiverIds,
-    allMemberIds: participantIds,
+    receiverIds: [], // resolved by consumer
+    allMemberIds: [], // resolved by consumer
     conversationType: conversation.type,
     conversationTitle: conversation.title,
     conversationAvatar: conversation.avatarUrl,
+    replyToId: replyToId || null,
   });
 
   return message;

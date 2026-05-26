@@ -137,6 +137,7 @@ export async function publishNewMessage(payload: {
   conversationType?: string;
   conversationTitle?: string;
   conversationAvatar?: string;
+  replyToId?: string | null;
 }): Promise<boolean> {
   const event: ChatEvent = {
     event: 'message.sent',

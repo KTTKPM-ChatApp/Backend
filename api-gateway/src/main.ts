@@ -3,13 +3,18 @@ import { createServer } from 'http';
 import cors from 'cors';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { ApolloServer } from '@apollo/server';
+import { expressMiddleware as apolloMiddleware } from '@apollo/server/express4';
+import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { config } from './config';
-import { authenticate } from './middleware';
+import { authenticate, AuthReq } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
 import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
 import { generateCloudinarySignature } from './cloudinary';
 import { connectRedis } from './redis';
+import { typeDefs } from './graphql/schema';
+import { resolvers } from './graphql/resolvers';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -269,9 +274,32 @@ app.get('/api/presence/online', authenticate, async (_, res) => {
 
 async function bootstrap() {
   await connectRedis();
+
   const httpServer = createServer(app);
+
+  const apollo = new ApolloServer({
+    typeDefs,
+    resolvers,
+    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+  });
+  await apollo.start();
+
+  // GraphQL endpoint (authenticated)
+  app.use(
+    '/graphql',
+    cors<cors.CorsRequest>(),
+    express.json(),
+    authenticate,
+    apolloMiddleware(apollo, {
+      context: async ({ req }: { req: express.Request }) => ({ userId: (req as AuthReq).userId }),
+    } as any),
+  );
+
   setupSocketIO(httpServer);
-  httpServer.listen(config.port, () => console.log(`API Gateway :${config.port}`));
+  httpServer.listen(config.port, () => {
+    console.log(`API Gateway :${config.port}`);
+    console.log(`GraphQL :${config.port}/graphql`);
+  });
 }
 
 bootstrap().catch((err) => {

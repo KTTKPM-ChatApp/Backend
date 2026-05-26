@@ -1,10 +1,15 @@
-import { AppDataSource, ConversationSummary, User } from '../db';
+import { AppDataSource, ConversationSummary, User, ConversationMember, Message } from '../db';
+import { In } from 'typeorm';
 import { startConsumer } from '../rabbitmq';
 import { notifyNewMessage } from '../notifier';
 import { cacheDeletePattern } from '../redis';
+import { clearUserCache } from '../auth-client';
+import { cacheMessage } from '../redis-messages';
 
 const summaryRepo = () => AppDataSource.getRepository(ConversationSummary);
 const userRepo = () => AppDataSource.getRepository(User);
+const memberRepo = () => AppDataSource.getRepository(ConversationMember);
+const messageRepo = () => AppDataSource.getRepository(Message);
 
 function formatPreview(content: string, attachments?: any[]): string {
   if (content && content.trim()) return content.slice(0, 255);
@@ -38,29 +43,49 @@ async function handleMessageSent(event: any): Promise<void> {
     messageId,
     conversationId,
     senderId,
-    senderName,
+    senderName: eventSenderName,
     content,
     contentType,
     createdAt,
     attachments,
-    allMemberIds,
+    allMemberIds: eventMemberIds,
     conversationType,
     conversationTitle,
     conversationAvatar,
+    replyToId,
   } = data;
+
+  // Resolve sender name and member IDs from DB if not provided
+  let resolvedSenderName = eventSenderName || '';
+  let resolvedMemberIds: string[] = eventMemberIds || [];
+
+  try {
+    if (!resolvedSenderName) {
+      const sender = await userRepo().findOneBy({ id: senderId });
+      resolvedSenderName = sender?.displayName || sender?.username || senderId;
+    }
+    if (!resolvedMemberIds.length) {
+      const members = await memberRepo().find({ where: { conversationId } });
+      resolvedMemberIds = members.map(m => m.userId);
+    }
+  } catch (err) {
+    console.warn('[Consumer] failed to resolve sender/members:', err);
+  }
+
+  if (!resolvedSenderName) resolvedSenderName = 'Người dùng';
 
   const preview = formatPreview(content, attachments);
   const createdAtDate = new Date(createdAt);
 
   // 1. Update read model (conversation_summaries) for ALL members
-  const summaries = (allMemberIds as string[]).map((memberId: string) => ({
+  const summaries = resolvedMemberIds.map((memberId: string) => ({
     userId: memberId,
     conversationId,
     lastMessageId: messageId,
     lastMessagePreview: preview,
     lastMessageAt: createdAtDate,
     lastSenderId: senderId,
-    lastSenderName: senderName,
+    lastSenderName: resolvedSenderName,
     conversationType: conversationType || undefined,
     conversationTitle: conversationTitle || undefined,
     conversationAvatar: conversationAvatar || undefined,
@@ -72,28 +97,41 @@ async function handleMessageSent(event: any): Promise<void> {
     )
   );
 
-  // 2. Invalidate Redis conversation list cache
+  // 2. Cache message in Redis read model (non-blocking)
+  cacheMessage(conversationId, messageId, {
+    messageId,
+    senderId,
+    senderName: resolvedSenderName,
+    body: content,
+    contentType: contentType || 'TEXT',
+    attachments: attachments || [],
+    createdAt: createdAtDate.getTime(),
+    replyToMessageId: replyToId || null,
+  }, createdAtDate.getTime());
+
+  // 3. Invalidate Redis conversation list cache
   await Promise.allSettled(
-    (allMemberIds as string[]).map((memberId: string) =>
+    resolvedMemberIds.map((memberId: string) =>
       cacheDeletePattern(`convlist:${memberId}:*`)
     )
   );
 
-  // 3. Realtime notification
-  const receiverIds = (allMemberIds as string[]).filter(id => id !== senderId);
+  // 4. Realtime notification
+  const receiverIds = resolvedMemberIds.filter(id => id !== senderId);
   await notifyNewMessage({
     messageId,
     senderId,
-    senderName,
+    senderName: resolvedSenderName,
     receiverIds,
     conversationId,
     content,
     contentType,
     createdAt,
     attachments: attachments || [],
+    replyToId: replyToId || null,
   });
 
-  console.log(`[Consumer] message.sent: ${messageId} -> ${allMemberIds.length} members`);
+  console.log(`[Consumer] message.sent: ${messageId} -> ${resolvedMemberIds.length} members`);
 }
 
 async function handleUserCreated(event: any): Promise<void> {
@@ -143,6 +181,26 @@ async function handleUserUpdated(event: any): Promise<void> {
     if (Object.keys(updateData).length > 0) {
       await userRepo().update(id, updateData);
       console.log(`[Consumer] user.updated: ${id} fields=${Object.keys(updateData).join(',')}`);
+    }
+
+    // Clear AuthClientService in-memory cache so fresh data is fetched
+    clearUserCache(id);
+
+    // Update lastSenderName in all conversation summaries where this user was the last sender
+    if (changes.displayName !== undefined) {
+      await summaryRepo().update(
+        { lastSenderId: id },
+        { lastSenderName: changes.displayName }
+      );
+
+      // Invalidate Redis conversation list cache for all conversations this user is in
+      const memberships = await memberRepo().find({ where: { userId: id } });
+      const conversationIds = [...new Set(memberships.map(m => m.conversationId))];
+      await Promise.allSettled(
+        conversationIds.map((convId: string) =>
+          cacheDeletePattern(`convlist:*:${convId}:*`)
+        )
+      );
     }
   } catch (error) {
     console.error(`[Consumer] user.updated error for ${id}:`, error);

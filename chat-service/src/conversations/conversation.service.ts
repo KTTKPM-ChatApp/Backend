@@ -191,7 +191,7 @@ export async function listConversations(userId: string, page: number = 1, limit:
           content: s.lastMessagePreview || '',
           createdAt: s.lastMessageAt,
           senderId: s.lastSenderId,
-          senderName: s.lastSenderName || 'Người dùng',
+          senderName: (s.lastSenderId ? userInfoMap.get(s.lastSenderId)?.displayName : null) || s.lastSenderName || 'Người dùng',
         } : undefined;
         return {
           id: s.conversationId,
