@@ -69,13 +69,57 @@ export class AuthClientService extends BaseClient {
 
   async getUsers(userIds: string[]): Promise<Map<string, UserInfo>> {
     const unique = [...new Set(userIds)];
-    const results = await Promise.allSettled(unique.map(id => this.getUser(id)));
     const map = new Map<string, UserInfo>();
-    unique.forEach((id, i) => {
-      if (results[i].status === 'fulfilled' && results[i].value) {
-        map.set(id, results[i].value);
+
+    // Check cache first
+    const uncached: string[] = [];
+    for (const id of unique) {
+      const cached = this.cache.get(id);
+      if (cached && Date.now() < cached.expiry) {
+        map.set(id, cached.data);
+      } else {
+        uncached.push(id);
       }
-    });
+    }
+
+    if (uncached.length === 0) return map;
+
+    // Batch fetch uncached users
+    try {
+      const res = await this.request<{ success: boolean; data: RawUserResponse[] }>({
+        method: 'GET',
+        path: `/users/batch?ids=${uncached.join(',')}`,
+        timeout: 5000,
+      });
+
+      if (res?.data) {
+        for (const raw of res.data) {
+          const id = raw.id ?? '';
+          if (!id) continue;
+          const info: UserInfo = {
+            id,
+            username: raw.username ?? id,
+            displayName: raw.displayName || raw.display_name || id,
+            avatarUrl: raw.avatarUrl || raw.avatar_url || null,
+            email: raw.email,
+            phone: raw.phone,
+            bio: raw.bio,
+            gender: raw.gender,
+          };
+          this.cache.set(id, { data: info, expiry: Date.now() + AuthClientService.CACHE_TTL });
+          map.set(id, info);
+        }
+      }
+    } catch {
+      // Fallback: fetch individually
+      const results = await Promise.allSettled(uncached.map(id => this.getUser(id)));
+      uncached.forEach((id, i) => {
+        if (results[i].status === 'fulfilled' && results[i].value) {
+          map.set(id, results[i].value);
+        }
+      });
+    }
+
     return map;
   }
 

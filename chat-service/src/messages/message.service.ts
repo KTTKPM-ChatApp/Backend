@@ -8,6 +8,7 @@ import {
   MessageReaction,
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
+import { getCachedMessages, getCachedMessageData } from '../redis-messages';
 
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
@@ -79,6 +80,80 @@ export async function listMessages(
   await ensureMember(userId, conversationId);
 
   const safeLimit = Math.max(1, Math.min(limit, 100));
+
+  // Fast path: try Redis read model first
+  const cached = await getCachedMessages(conversationId, safeLimit, cursor);
+  if (cached.messageIds.length > 0) {
+    const cachedData = await getCachedMessageData(cached.messageIds);
+    const cachedItems: any[] = [];
+
+    for (const id of cached.messageIds) {
+      const data = cachedData.get(id);
+      if (!data) continue;
+      const attachments = (data.attachments || []).map(normalizeAttachment).filter(Boolean);
+      cachedItems.push({
+        messageId: data.messageId,
+        conversationId,
+        senderId: data.senderId,
+        senderName: data.senderName || 'Người dùng',
+        body: data.body || '',
+        contentType: data.contentType || detectContentType(data.body || '', attachments),
+        attachments,
+        createdAt: data.createdAt,
+        isDeleted: false,
+        replyToMessageId: data.replyToMessageId || null,
+        replyTo: null,
+      });
+    }
+
+    // Only serve from cache if we have items and either:
+    //   - more remain in cache (hasMore=true), or
+    //   - we returned fewer than safeLimit (end of all messages)
+    // If cache returned exactly safeLimit and hasMore is false, fall through to DB
+    const useCache = cachedItems.length > 0 && (cached.hasMore || cachedItems.length < safeLimit);
+
+    if (useCache) {
+      const replyToIds = [...new Set(cachedItems.map(m => m.replyToMessageId).filter(Boolean))] as string[];
+      if (replyToIds.length > 0) {
+        const repliedMsgs = await messageRepo()
+          .createQueryBuilder('r')
+          .where('r.id IN (:...ids)', { ids: replyToIds })
+          .getMany();
+        const senderIds = [...new Set(repliedMsgs.map(r => r.senderId))];
+        let senderMap = new Map<string, string>();
+        if (senderIds.length > 0) {
+          try {
+            const sendersInfo = await fetchUsersInfo(senderIds);
+            sendersInfo.forEach((info, id) => senderMap.set(id, info.displayName));
+          } catch (err) {
+            console.warn('[listMessages] senderName lookup for replied failed:', err);
+          }
+        }
+        for (const r of repliedMsgs) {
+          const repliedMsg = cachedItems.find(m => m.replyToMessageId === r.id);
+          if (repliedMsg) {
+            repliedMsg.replyTo = {
+              messageId: r.id,
+              senderId: r.senderId,
+              senderName: senderMap.get(r.senderId) || 'Người dùng',
+              body: r.content,
+              attachments: parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
+              isDeleted: false,
+            };
+          }
+        }
+      }
+
+      const oldestCreatedAt = cachedItems[cachedItems.length - 1]?.createdAt;
+      return {
+        items: cachedItems.reverse(),
+        nextCursor: cached.hasMore ? String(oldestCreatedAt) : null,
+        hasMore: cached.hasMore,
+      };
+    }
+  }
+
+  // Fallback: MariaDB query
   const qb = messageRepo()
     .createQueryBuilder('m')
     .where('m.conversation_id = :conversationId', { conversationId })
@@ -87,7 +162,7 @@ export async function listMessages(
     .limit(safeLimit + 1);
 
   if (cursor) {
-    qb.andWhere('m.created_at < :cursorDate', { cursorDate: new Date(cursor) });
+    qb.andWhere('m.created_at < :cursorDate', { cursorDate: new Date(Number(cursor)) });
   }
 
   const rows = await qb.getMany();

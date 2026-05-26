@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { DataSource, Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { DataSource, DataSourceOptions, Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { config } from './config';
 
 @Entity('conversations')
@@ -36,6 +36,7 @@ export class ConversationMember {
 @Entity('messages')
 @Index(['conversationId', 'createdAt', 'id'])
 @Index(['conversationId', 'senderId'])
+@Index(['senderId', 'createdAt'])
 export class Message {
   @PrimaryColumn('varchar', { length: 36 }) id!: string;
   @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
@@ -215,6 +216,7 @@ export interface ConversationFeatures {
 
 @Entity('conversation_summaries')
 @Index(['userId', 'lastMessageAt'])
+@Index(['lastSenderId'])
 export class ConversationSummary {
   @PrimaryColumn('varchar', { length: 36, name: 'user_id' }) userId!: string;
   @PrimaryColumn('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
@@ -232,6 +234,7 @@ export class ConversationSummary {
 }
 
 @Entity('message_attachments')
+@Index(['messageId'])
 export class MessageAttachment {
   @PrimaryColumn('varchar', { length: 36 }) id!: string;
   @Column('varchar', { length: 36, name: 'message_id' }) messageId!: string;
@@ -260,36 +263,76 @@ export class User {
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }
 
-export const AppDataSource = new DataSource({
-  type: 'mariadb',
-  ...config.db,
-  synchronize: process.env.NODE_ENV !== 'production',
-  logging: false,
-  entities: [
-    Conversation, 
-    ConversationMember, 
-    Message,
-    MessagePin,
-    MessageReaction,
-    MessageForward,
-    ConversationInvite,
-    ConversationPoll,
-    PollVote,
-    ConversationCall,
-    ConversationSettings,
-    UserPinnedConversation,
-    MessageRead,
-    ConversationSummary,
-    User,
-  ],
-  connectorPackage: 'mysql2',
-  extra: {
-    connectionLimit: 20,
-    acquireTimeout: 60000,
-    waitForConnections: true,
-    queueLimit: 0,
-  },
-});
+function buildDataSource(): DataSourceOptions {
+  const base = {
+    type: 'mariadb' as const,
+    database: config.db.database,
+    synchronize: process.env.NODE_ENV !== 'production',
+    logging: false,
+    entities: [
+      Conversation,
+      ConversationMember,
+      Message,
+      MessagePin,
+      MessageReaction,
+      MessageForward,
+      ConversationInvite,
+      ConversationPoll,
+      PollVote,
+      ConversationCall,
+      ConversationSettings,
+      UserPinnedConversation,
+      MessageRead,
+      ConversationSummary,
+      User,
+    ],
+    connectorPackage: 'mysql2' as const,
+    extra: {
+      connectionLimit: config.db.poolSize,
+      maxIdle: config.db.poolMaxIdle,
+      idleTimeout: config.db.poolIdleTimeout,
+      acquireTimeout: 60000,
+      waitForConnections: true,
+      queueLimit: 100,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+    },
+  };
+
+  if (config.db.replicaHost) {
+    return {
+      ...base,
+      replication: {
+        master: {
+          host: config.db.host,
+          port: config.db.port,
+          username: config.db.username,
+          password: config.db.password,
+        },
+        slaves: [{
+          host: config.db.replicaHost,
+          port: config.db.replicaPort,
+          username: config.db.replicaUser || config.db.username,
+          password: config.db.replicaPassword || config.db.password,
+        }],
+        selector: 'RR' as const,
+        canRetry: true,
+        removeNodeErrorCount: 5,
+        restoreNodeTimeout: 5000,
+      },
+    };
+  }
+
+  return {
+    ...base,
+    host: config.db.host,
+    port: config.db.port,
+    username: config.db.username,
+    password: config.db.password,
+  };
+}
+
+export const AppDataSource = new DataSource(buildDataSource());
 
 export async function ensureDatabase() {
   const { createConnection } = await import('mysql2/promise');

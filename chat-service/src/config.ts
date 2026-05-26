@@ -11,6 +11,13 @@ export const config = {
     connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
     connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
     authSwitchHandler: () => {},
+    poolSize: Number(process.env.DB_POOL_SIZE) || 20,
+    poolIdleTimeout: Number(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
+    poolMaxIdle: Number(process.env.DB_POOL_MAX_IDLE) || 5,
+    replicaHost: process.env.DB_REPLICA_HOST || '',
+    replicaPort: Number(process.env.DB_REPLICA_PORT) || 3306,
+    replicaUser: process.env.DB_REPLICA_USER || '',
+    replicaPassword: process.env.DB_REPLICA_PASS || '',
   },
   rabbitmq: {
     url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',

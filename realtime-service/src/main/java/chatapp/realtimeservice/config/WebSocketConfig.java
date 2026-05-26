@@ -30,31 +30,56 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${app.allowed-origins:*}")
     private String allowedOrigins;
 
+    @Value("${broker.relay.enabled:false}")
+    private boolean brokerRelayEnabled;
+
+    @Value("${broker.relay.host:localhost}")
+    private String relayHost;
+
+    @Value("${broker.relay.port:61613}")
+    private int relayPort;
+
+    @Value("${broker.relay.login:guest}")
+    private String relayLogin;
+
+    @Value("${broker.relay.passcode:guest}")
+    private String relayPasscode;
+
+    @Value("${broker.relay.virtual-host:/}")
+    private String relayVirtualHost;
+
     public WebSocketConfig(JwtTokenProvider jwtTokenProvider) {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Điểm nối kết cho client. Client sẽ gọi ws://domain/ws
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns(allowedOrigins) // Cấu hình từ properties
-                .withSockJS(); // Cung cấp fallback nếu trình duyệt không hỗ trợ WebSocket thuần
+                .setAllowedOriginPatterns(allowedOrigins)
+                .withSockJS();
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Tiền tố cho các tin nhắn từ Server đẩy về Client (ví dụ: /topic/group-1)
-        registry.enableSimpleBroker("/topic", "/queue");
+        if (brokerRelayEnabled) {
+            registry.enableStompBrokerRelay("/topic", "/queue")
+                    .setRelayHost(relayHost)
+                    .setRelayPort(relayPort)
+                    .setClientLogin(relayLogin)
+                    .setClientPasscode(relayPasscode)
+                    .setVirtualHost(relayVirtualHost)
+                    .setSystemLogin(relayLogin)
+                    .setSystemPasscode(relayPasscode);
+            logger.info("STOMP broker relay enabled: {}:{}", relayHost, relayPort);
+        } else {
+            registry.enableSimpleBroker("/topic", "/queue");
+            logger.info("STOMP simple broker enabled (single-instance mode)");
+        }
 
-        // Tiền tố cho các request từ Client gửi lên Server (ví dụ: /app/chat.sendMessage)
         registry.setApplicationDestinationPrefixes("/app");
-
-        // Tiền tố cho tin nhắn gửi đích danh một user (1-1)
         registry.setUserDestinationPrefix("/user");
     }
 
-    // Chặn các tin nhắn STOMP để kiểm tra JWT khi Client yêu cầu CONNECT
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(new ChannelInterceptor() {
@@ -67,7 +92,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     return message;
                 }
 
-                // Nếu Client đang yêu cầu kết nối
                 if (StompCommand.CONNECT.equals(accessor.getCommand())) {
                     String authorizationHeader = accessor.getFirstNativeHeader("Authorization");
                     String userId = jwtTokenProvider.getUserIdFromToken(authorizationHeader);
