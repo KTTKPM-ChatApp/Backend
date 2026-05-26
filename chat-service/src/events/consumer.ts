@@ -1,10 +1,13 @@
-import { AppDataSource, ConversationSummary, User } from '../db';
+import { AppDataSource, ConversationSummary, User, ConversationMember } from '../db';
+import { In } from 'typeorm';
 import { startConsumer } from '../rabbitmq';
 import { notifyNewMessage } from '../notifier';
 import { cacheDeletePattern } from '../redis';
+import { clearUserCache } from '../auth-client';
 
 const summaryRepo = () => AppDataSource.getRepository(ConversationSummary);
 const userRepo = () => AppDataSource.getRepository(User);
+const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 
 function formatPreview(content: string, attachments?: any[]): string {
   if (content && content.trim()) return content.slice(0, 255);
@@ -145,6 +148,26 @@ async function handleUserUpdated(event: any): Promise<void> {
     if (Object.keys(updateData).length > 0) {
       await userRepo().update(id, updateData);
       console.log(`[Consumer] user.updated: ${id} fields=${Object.keys(updateData).join(',')}`);
+    }
+
+    // Clear AuthClientService in-memory cache so fresh data is fetched
+    clearUserCache(id);
+
+    // Update lastSenderName in all conversation summaries where this user was the last sender
+    if (changes.displayName !== undefined) {
+      await summaryRepo().update(
+        { lastSenderId: id },
+        { lastSenderName: changes.displayName }
+      );
+
+      // Invalidate Redis conversation list cache for all conversations this user is in
+      const memberships = await memberRepo().find({ where: { userId: id } });
+      const conversationIds = [...new Set(memberships.map(m => m.conversationId))];
+      await Promise.allSettled(
+        conversationIds.map((convId: string) =>
+          cacheDeletePattern(`convlist:*:${convId}:*`)
+        )
+      );
     }
   } catch (error) {
     console.error(`[Consumer] user.updated error for ${id}:`, error);
