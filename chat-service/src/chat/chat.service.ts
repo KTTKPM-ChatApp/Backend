@@ -182,6 +182,7 @@ export async function sendMessage(
     conversationType: conversation.type,
     conversationTitle: conversation.title,
     conversationAvatar: conversation.avatarUrl,
+    replyToId: replyToId || null,
   });
 
   return message;

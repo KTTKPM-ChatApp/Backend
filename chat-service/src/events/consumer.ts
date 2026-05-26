@@ -47,6 +47,7 @@ async function handleMessageSent(event: any): Promise<void> {
     conversationType,
     conversationTitle,
     conversationAvatar,
+    replyToId,
   } = data;
 
   const preview = formatPreview(content, attachments);
@@ -91,6 +92,7 @@ async function handleMessageSent(event: any): Promise<void> {
     contentType,
     createdAt,
     attachments: attachments || [],
+    replyToId: replyToId || null,
   });
 
   console.log(`[Consumer] message.sent: ${messageId} -> ${allMemberIds.length} members`);
