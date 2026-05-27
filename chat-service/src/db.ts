@@ -50,6 +50,8 @@ export class Message {
   @Column('varchar', { length: 36, name: 'reply_to_id', nullable: true }) replyToId?: string;
   @Column('boolean', { name: 'is_edited', default: false }) isEdited!: boolean;
   @Column('datetime', { name: 'edited_at', nullable: true }) editedAt?: Date;
+  @Column('boolean', { name: 'is_deleted', default: false }) isDeleted!: boolean;
+  @Column('datetime', { name: 'deleted_at', nullable: true }) deletedAt?: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
   @Column('varchar', { length: 20, default: 'text', name: 'type' }) type!: string;

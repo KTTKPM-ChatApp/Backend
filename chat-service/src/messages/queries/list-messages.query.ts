@@ -33,11 +33,12 @@ export async function listMessages(
         conversationId,
         senderId: data.senderId,
         senderName: data.senderName || 'Nguoi dung',
-        body: data.body || '',
+        body: data.isDeleted ? '' : (data.body || ''),
         contentType: data.contentType || detectContentType(data.body || '', attachments),
         attachments,
         createdAt: data.createdAt,
-        isDeleted: false,
+        isDeleted: data.isDeleted || false,
+        deletedAt: data.deletedAt || null,
         replyToMessageId: data.replyToMessageId || null,
         replyTo: null,
       });
@@ -157,15 +158,17 @@ export async function listMessages(
       const rawAttachments = parseAttachments(msg.attachments);
       const attachments = rawAttachments.map(normalizeAttachment).filter(Boolean);
       const contentType = detectContentType(msg.content, attachments);
+      const isDeleted = msg.isDeleted || false;
       return {
         ...msg,
         messageId: msg.id,
-        body: msg.content,
+        body: isDeleted ? '' : msg.content,
         contentType,
-        attachments,
+        attachments: isDeleted ? [] : attachments,
         senderName: senderNameMap.get(msg.senderId) || 'Nguoi dung',
         createdAt: toEpoch(msg.createdAt),
-        isDeleted: false,
+        isDeleted,
+        deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
         replyToMessageId: msg.replyToId || null,
         replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
       };

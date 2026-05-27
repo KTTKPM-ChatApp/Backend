@@ -173,6 +173,22 @@ export async function publishUserOnline(payload: {
   return publishEvent(RABBITMQ.ROUTING_KEYS.USER_ONLINE, event);
 }
 
+export async function publishMessageDeleted(payload: {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  deletedAt: string;
+  allMemberIds: string[];
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.deleted',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED, event);
+}
+
 export async function publishTyping(payload: {
   conversationId: string;
   userId: string;

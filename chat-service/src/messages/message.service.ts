@@ -639,9 +639,17 @@ export async function deleteMessage(
     throw new Error('You can only delete your own messages');
   }
 
-  await messageRepo().delete({ id: messageId });
-  
+  await messageRepo().update(
+    { id: messageId },
+    { content: '', attachments: null, isDeleted: true, deletedAt: new Date() }
+  );
+
   await pinRepo().delete({ messageId, conversationId });
-  
-  return { success: true, messageId };
+
+  return {
+    success: true,
+    messageId,
+    isDeleted: true,
+    deletedAt: Date.now(),
+  };
 }
