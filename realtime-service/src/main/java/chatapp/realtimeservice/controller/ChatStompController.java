@@ -60,12 +60,15 @@ public class ChatStompController {
                 : null;
         Principal principal = headerAccessor.getUser();
         String userId = principal != null ? principal.getName() : "unknown";
+        String displayName = payload.get("display_name") != null
+                ? payload.get("display_name").toString()
+                : userId;
 
         if (conversationId == null || conversationId.isBlank()) {
             return;
         }
 
-        messageBroadcastService.broadcastTyping(conversationId, userId);
+        messageBroadcastService.broadcastTyping(conversationId, userId, displayName);
     }
 
     @MessageMapping("/chat/delete")
@@ -132,12 +135,15 @@ public class ChatStompController {
                 : null;
         Principal principal = headerAccessor.getUser();
         String userId = principal != null ? principal.getName() : "unknown";
+        String displayName = payload.get("display_name") != null
+                ? payload.get("display_name").toString()
+                : userId;
 
         if (conversationId == null || conversationId.isBlank()) {
             return;
         }
 
-        messageBroadcastService.broadcastStopTyping(conversationId, userId);
+        messageBroadcastService.broadcastStopTyping(conversationId, userId, displayName);
     }
 
     @MessageMapping("/message.read")

@@ -7,12 +7,7 @@ export const config = {
   services: {
     auth: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
     chat: process.env.CHAT_SERVICE_URL || 'http://localhost:3003',
-  },
-  cloudinary: {
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME!,
-    apiKey: process.env.CLOUDINARY_API_KEY!,
-    apiSecret: process.env.CLOUDINARY_API_SECRET!,
-    uploadFolder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'zalo-chat',
+    realtime: process.env.REALTIME_SERVICE_URL || 'http://localhost:8080',
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',

@@ -72,24 +72,24 @@ public class MessageBroadcastService {
         }
     }
 
-    public void broadcastTyping(String conversationId, String userId) {
+    public void broadcastTyping(String conversationId, String userId, String displayName) {
         String destination = "/topic/conv." + conversationId + "/typing";
         try {
             simpMessagingTemplate.convertAndSend(destination,
-                    new TypingEvent(conversationId, userId, true));
-            logger.debug("Typing broadcast: user {} in conversation {}", userId, conversationId);
+                    new TypingEvent(conversationId, userId, displayName, true));
+            logger.debug("Typing broadcast: user {} ({}) in conversation {}", userId, displayName, conversationId);
         } catch (Exception ex) {
             logger.warn("Failed to broadcast typing for user {} in conv {}: {}",
                     userId, conversationId, ex.getMessage());
         }
     }
 
-    public void broadcastStopTyping(String conversationId, String userId) {
+    public void broadcastStopTyping(String conversationId, String userId, String displayName) {
         String destination = "/topic/conv." + conversationId + "/typing";
         try {
             simpMessagingTemplate.convertAndSend(destination,
-                    new TypingEvent(conversationId, userId, false));
-            logger.debug("Stop typing broadcast: user {} in conversation {}", userId, conversationId);
+                    new TypingEvent(conversationId, userId, displayName, false));
+            logger.debug("Stop typing broadcast: user {} ({}) in conversation {}", userId, displayName, conversationId);
         } catch (Exception ex) {
             logger.warn("Failed to broadcast stop typing for user {} in conv {}: {}",
                     userId, conversationId, ex.getMessage());
@@ -160,7 +160,7 @@ public class MessageBroadcastService {
     public record PresenceUpdate(String userId, String event) {
     }
 
-    public record TypingEvent(String conversationId, String userId, boolean typing) {
+    public record TypingEvent(String conversationId, String userId, String displayName, boolean typing) {
     }
 
     public record ReadReceiptEvent(String conversationId, String userId, String messageId) {
