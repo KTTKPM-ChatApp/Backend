@@ -651,13 +651,13 @@ export async function deleteMessage(
 
   await messageRepo().update(
     { id: messageId },
-    { content: '', attachments: null, isDeleted: true, deletedAt: new Date() }
+    { content: '', attachments: [], isDeleted: true, deletedAt: new Date() }
   );
 
   await pinRepo().delete({ messageId, conversationId });
 
-  const { publishMessageDeleted } = await import('../../rabbitmq');
-  const { updateCachedMessageDeleted } = await import('../../redis-messages');
+  const { publishMessageDeleted } = await import('../rabbitmq');
+  const { updateCachedMessageDeleted } = await import('../redis-messages');
   const allMembers = await memberRepo().find({ where: { conversationId } });
   const allMemberIds = allMembers.map(m => m.userId);
 

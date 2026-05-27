@@ -31,7 +31,7 @@ export async function deleteMessage(
 
   await messageRepo().update(
     { id: messageId },
-    { content: '', attachments: null, isDeleted: true, deletedAt: new Date() }
+    { content: '', attachments: [], isDeleted: true, deletedAt: new Date() }
   );
 
   await pinRepo().delete({ messageId, conversationId });
