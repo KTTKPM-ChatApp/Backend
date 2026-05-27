@@ -82,6 +82,7 @@ export const typeDefs = `#graphql
       contentType: String
       attachments: [AttachmentInput!]
       replyToId: ID
+      clientMessageId: ID
     ): Message!
   }
 

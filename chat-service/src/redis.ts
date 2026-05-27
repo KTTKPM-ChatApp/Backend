@@ -28,7 +28,6 @@ export async function connectRedis(): Promise<void> {
   } catch (error: any) {
     redisLastError = error?.message || 'Unknown Redis error';
     console.error('Failed to connect to Redis:', error?.message);
-    // Don't throw - keep service boot resilient
   }
 }
 
@@ -51,7 +50,6 @@ export function getRedisStatus(): { connected: boolean; lastError: string | null
   };
 }
 
-// Cache helpers with TTL
 export async function cacheGet<T>(key: string): Promise<T | null> {
   if (!redisClient?.isOpen) return null;
   try {
@@ -84,12 +82,44 @@ export async function cacheDelete(key: string): Promise<void> {
 export async function cacheDeletePattern(pattern: string): Promise<void> {
   if (!redisClient?.isOpen) return;
   try {
-    const keys = await redisClient.keys(pattern);
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const result = await redisClient.scan(Number(cursor), { MATCH: pattern, COUNT: 500 });
+      cursor = String(result.cursor);
+      keys.push(...result.keys);
+    } while (cursor !== '0');
     if (keys.length > 0) {
       await redisClient.del(keys);
     }
   } catch (error) {
     console.error('Redis cache delete pattern error:', error);
+  }
+}
+
+export async function cacheMGet(keys: string[]): Promise<(string | null)[]> {
+  if (!redisClient?.isOpen || keys.length === 0) return [];
+  try {
+    return await redisClient.mGet(keys);
+  } catch (error) {
+    console.error('Redis cache mget error:', error);
+    return [];
+  }
+}
+
+export async function cachePipelineGet(keys: string[]): Promise<(any | null)[]> {
+  if (!redisClient?.isOpen || keys.length === 0) return [];
+  try {
+    const pipeline = redisClient.multi();
+    keys.forEach(key => pipeline.get(key));
+    const results = await pipeline.exec();
+    return results.map(r => {
+      if (!r) return null;
+      try { return JSON.parse(r as string); } catch { return r; }
+    });
+  } catch (error) {
+    console.error('Redis pipeline get error:', error);
+    return keys.map(() => null);
   }
 }
 

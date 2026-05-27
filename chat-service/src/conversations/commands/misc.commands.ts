@@ -1,5 +1,6 @@
 import { fetchUserInfo } from '../../auth-client';
 import { ConversationFeatures, ConversationPermissions, ConversationPolicies } from '../../db';
+import { cacheDeletePattern } from '../../redis';
 import {
   checkMembership,
   checkOwnerPermission,
@@ -9,6 +10,7 @@ import {
   persistAndNotifySystemEvent,
   pinnedRepo,
   settingsRepo,
+  summaryRepo,
 } from '../shared/conversation-context';
 
 export async function markAsRead(
@@ -20,6 +22,10 @@ export async function markAsRead(
   await memberRepo().update({ conversationId, userId }, {
     lastReadAt: new Date(),
   });
+
+  await summaryRepo().update({ userId, conversationId }, { unreadCount: 0 });
+
+  cacheDeletePattern(`convlist:${userId}:*`);
 
   return { message: 'Conversation marked as read' };
 }

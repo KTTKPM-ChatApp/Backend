@@ -1,11 +1,30 @@
 import { v4 as uuid } from 'uuid';
 import { AppDataSource, Conversation, ConversationMember, Message, User } from '../db';
 import { publishNewMessage } from '../rabbitmq';
+import { getRedisClient } from '../redis';
 
 const conversationRepo = () => AppDataSource.getRepository(Conversation);
 const memberRepo = () => AppDataSource.getRepository(ConversationMember);
 const messageRepo = () => AppDataSource.getRepository(Message);
 const userRepo = () => AppDataSource.getRepository(User);
+
+const IDEMPOTENCY_TTL = 300;
+
+async function checkIdempotency(clientMessageId: string): Promise<boolean> {
+  const redis = getRedisClient();
+  if (!redis?.isOpen) return false;
+  try {
+    const key = `idempotent:msg:${clientMessageId}`;
+    const set = await redis.setNX(key, '1');
+    if (set) {
+      await redis.expire(key, IDEMPOTENCY_TTL);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function getConversationMessages(
   userId: string,
@@ -74,8 +93,17 @@ export async function sendMessage(
   content: string,
   contentType = 'TEXT',
   attachments: any[] = [],
-  replyToId?: string | null
+  replyToId?: string | null,
+  clientMessageId?: string | null
 ) {
+  if (clientMessageId) {
+    const isDuplicate = await checkIdempotency(clientMessageId);
+    if (isDuplicate) {
+      const existing = await messageRepo().findOneBy({ id: clientMessageId });
+      if (existing) return existing;
+    }
+  }
+
   const conversation = await conversationRepo().findOneBy({ id: conversationId });
   if (!conversation) throw new Error('Conversation not found');
   

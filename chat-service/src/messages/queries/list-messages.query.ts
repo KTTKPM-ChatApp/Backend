@@ -43,7 +43,7 @@ export async function listMessages(
       });
     }
 
-    const useCache = cachedItems.length > 0 && (cached.hasMore || cachedItems.length < safeLimit);
+    const useCache = cachedItems.length > 0 && cached.hasMore;
 
     if (useCache) {
       const replyToIds = [...new Set(cachedItems.map(m => m.replyToMessageId).filter(Boolean))] as string[];
