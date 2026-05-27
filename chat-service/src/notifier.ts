@@ -1,11 +1,11 @@
 import { config } from './config';
-import { RealtimeClientService } from '../shared/clients/realtime-client';
-import { GatewayClientService } from '../shared/clients/gateway-client';
+import { RealtimeClientService } from '../../shared/clients/realtime-client';
+import { GatewayClientService } from '../../shared/clients/gateway-client';
 import type {
   NewMessagePayload,
   SystemEventPayload,
   NewConversationPayload,
-} from '../shared/clients/realtime-client';
+} from '../../shared/clients/realtime-client';
 
 export type { NewMessagePayload, SystemEventPayload, NewConversationPayload };
 

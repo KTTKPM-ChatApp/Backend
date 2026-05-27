@@ -1,6 +1,6 @@
 import amqp from 'amqplib';
 import { config } from './config';
-import { RABBITMQ } from '../shared/contracts/events';
+import { RABBITMQ } from '../../shared/contracts/events';
 export { RABBITMQ };
 
 let connection: amqp.ChannelModel | null = null;
