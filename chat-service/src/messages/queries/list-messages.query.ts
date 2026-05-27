@@ -66,13 +66,14 @@ export async function listMessages(
         for (const r of repliedMsgs) {
           const repliedMsg = cachedItems.find(m => m.replyToMessageId === r.id);
           if (repliedMsg) {
+            const isReplyDeleted = r.isDeleted || false;
             repliedMsg.replyTo = {
               messageId: r.id,
               senderId: r.senderId,
               senderName: senderMap.get(r.senderId) || 'Nguoi dung',
-              body: r.content,
-              attachments: parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
-              isDeleted: false,
+              body: isReplyDeleted ? '' : r.content,
+              attachments: isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
+              isDeleted: isReplyDeleted,
             };
           }
         }
@@ -126,14 +127,15 @@ export async function listMessages(
     }
 
     for (const r of repliedMsgs) {
-      const repliedAttachments = parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
+      const isReplyDeleted = r.isDeleted || false;
+      const repliedAttachments = isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
       repliedMessagesMap.set(r.id, {
         messageId: r.id,
         senderId: r.senderId,
         senderName: senderMap.get(r.senderId) || 'Nguoi dung',
-        body: r.content,
+        body: isReplyDeleted ? '' : r.content,
         attachments: repliedAttachments,
-        isDeleted: false,
+        isDeleted: isReplyDeleted,
       });
     }
   }

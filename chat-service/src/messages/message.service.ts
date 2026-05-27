@@ -91,16 +91,18 @@ export async function listMessages(
       const data = cachedData.get(id);
       if (!data) continue;
       const attachments = (data.attachments || []).map(normalizeAttachment).filter(Boolean);
+      const isDeletedFromCache = Boolean(data.isDeleted);
       cachedItems.push({
         messageId: data.messageId,
         conversationId,
         senderId: data.senderId,
         senderName: data.senderName || 'Người dùng',
-        body: data.body || '',
-        contentType: data.contentType || detectContentType(data.body || '', attachments),
-        attachments,
+        body: isDeletedFromCache ? '' : (data.body || ''),
+        contentType: data.contentType || detectContentType(isDeletedFromCache ? '' : (data.body || ''), attachments),
+        attachments: isDeletedFromCache ? [] : attachments,
         createdAt: data.createdAt,
-        isDeleted: false,
+        isDeleted: isDeletedFromCache,
+        deletedAt: data.deletedAt || null,
         replyToMessageId: data.replyToMessageId || null,
         replyTo: null,
       });
@@ -130,13 +132,14 @@ export async function listMessages(
         for (const r of repliedMsgs) {
           const repliedMsg = cachedItems.find(m => m.replyToMessageId === r.id);
           if (repliedMsg) {
+            const isReplyDeleted = r.isDeleted || false;
             repliedMsg.replyTo = {
               messageId: r.id,
               senderId: r.senderId,
               senderName: senderMap.get(r.senderId) || 'Người dùng',
-              body: r.content,
-              attachments: parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
-              isDeleted: false,
+              body: isReplyDeleted ? '' : r.content,
+              attachments: isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
+              isDeleted: isReplyDeleted,
             };
           }
         }
@@ -198,14 +201,15 @@ export async function listMessages(
     }
 
     for (const r of repliedMsgs) {
-      const repliedAttachments = parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
+      const isReplyDeleted = r.isDeleted || false;
+      const repliedAttachments = isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
       repliedMessagesMap.set(r.id, {
         messageId: r.id,
         senderId: r.senderId,
         senderName: senderMap.get(r.senderId) || 'Người dùng',
-        body: r.content,
+        body: isReplyDeleted ? '' : r.content,
         attachments: repliedAttachments,
-        isDeleted: false,
+        isDeleted: isReplyDeleted,
       });
     }
   }
@@ -229,18 +233,20 @@ export async function listMessages(
   const normalized = items
     .reverse()
     .map((msg) => {
+      const isDeleted = msg.isDeleted || false;
       const rawAttachments = parseAttachments(msg.attachments);
-      const attachments = rawAttachments.map(normalizeAttachment).filter(Boolean);
-      const contentType = detectContentType(msg.content, attachments);
+      const attachments = isDeleted ? [] : rawAttachments.map(normalizeAttachment).filter(Boolean);
+      const contentType = detectContentType(isDeleted ? '' : msg.content, attachments);
       return {
         ...msg,
         messageId: msg.id,
-        body: msg.content,
+        body: isDeleted ? '' : msg.content,
         contentType,
         attachments,
         senderName: senderNameMap.get(msg.senderId) || 'Người dùng',
         createdAt: toEpoch(msg.createdAt),
-        isDeleted: false,
+        isDeleted,
+        deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
         replyToMessageId: msg.replyToId || null,
         replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
       };
@@ -279,16 +285,18 @@ export async function getMessageDetail(
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
 
-  const attachments = parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
+  const isDeleted = message.isDeleted || false;
+  const attachments = isDeleted ? [] : parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
   return {
     ...message,
     messageId: message.id,
-    body: message.content,
-    contentType: detectContentType(message.content, attachments),
+    body: isDeleted ? '' : message.content,
+    contentType: detectContentType(isDeleted ? '' : message.content, attachments),
     attachments,
     senderName,
     createdAt: toEpoch(message.createdAt),
-    isDeleted: false,
+    isDeleted,
+    deletedAt: message.deletedAt ? toEpoch(message.deletedAt) : null,
     replyToMessageId: message.replyToId || null,
   };
 }
@@ -359,16 +367,18 @@ export async function searchMessages(
   }
 
   return filtered.map((msg) => {
-    const attachments = parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
+    const isDeleted = msg.isDeleted || false;
+    const attachments = isDeleted ? [] : parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
     return {
       ...msg,
       messageId: msg.id,
-      body: msg.content,
-      contentType: detectContentType(msg.content, attachments),
+      body: isDeleted ? '' : msg.content,
+      contentType: detectContentType(isDeleted ? '' : msg.content, attachments),
       attachments,
       senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
       createdAt: toEpoch(msg.createdAt),
-      isDeleted: false,
+      isDeleted,
+      deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
       replyToMessageId: msg.replyToId || null,
     };
   });
