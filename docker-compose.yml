@@ -135,7 +135,7 @@ services:
       DB_PASS: ${DB_PASS}
       DB_NAME: chat_service
       AUTH_SERVICE_URL: http://auth-service:3001
-    command: ["node", "dist/src/seed.js"]
+    command: ["node", "dist/chat-service/src/seed.js"]
 
   chat-service:
     build:

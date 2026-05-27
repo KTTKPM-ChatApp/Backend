@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/chat-service/src/main.js"
   },
   "dependencies": {
     "@types/multer": "^2.1.0",
