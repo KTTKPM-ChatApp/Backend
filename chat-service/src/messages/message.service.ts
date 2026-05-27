@@ -106,11 +106,9 @@ export async function listMessages(
       });
     }
 
-    // Only serve from cache if we have items and either:
-    //   - more remain in cache (hasMore=true), or
-    //   - we returned fewer than safeLimit (end of all messages)
-    // If cache returned exactly safeLimit and hasMore is false, fall through to DB
-    const useCache = cachedItems.length > 0 && (cached.hasMore || cachedItems.length < safeLimit);
+    // Only serve from cache if we have items and more remain in cache (hasMore).
+    // When cache exhausted, fall through to DB — cache may be incomplete (only recent messages).
+    const useCache = cachedItems.length > 0 && cached.hasMore;
 
     if (useCache) {
       const replyToIds = [...new Set(cachedItems.map(m => m.replyToMessageId).filter(Boolean))] as string[];

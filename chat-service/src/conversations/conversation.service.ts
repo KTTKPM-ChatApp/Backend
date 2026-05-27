@@ -200,8 +200,12 @@ export async function listConversations(userId: string, page: number = 1, limit:
           avatarUrl: s.conversationAvatar,
           name,
           members: convMembers,
+          memberCount: convMembers.length,
           isPinned: pinnedSet.has(s.conversationId),
           isMuted: (convMembers.find((m: any) => m.userId === userId) as any)?.isMuted ?? false,
+          unreadCount: s.unreadCount ?? 0,
+          lastMessageAt: s.lastMessageAt,
+          createdAt: s.createdAt,
           lastMessage,
         };
       }),
@@ -1623,6 +1627,10 @@ export async function markAsRead(
   await memberRepo().update({ conversationId, userId }, { 
     lastReadAt: new Date() 
   });
+  
+  await summaryRepo().update({ userId, conversationId }, { unreadCount: 0 });
+  
+  cacheDeletePattern(`convlist:${userId}:*`);
   
   return { message: 'Conversation marked as read' };
 }

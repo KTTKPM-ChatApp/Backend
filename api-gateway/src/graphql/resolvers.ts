@@ -1,4 +1,5 @@
 import axios from 'axios';
+import DataLoader from 'dataloader';
 import { config } from '../config';
 
 const chatApi = axios.create({ baseURL: config.services.chat, timeout: 10000 });
@@ -6,6 +7,28 @@ const authApi = axios.create({ baseURL: config.services.auth, timeout: 10000 });
 
 function getAuthHeaders(userId?: string) {
   return userId ? { 'x-user-id': userId } : {};
+}
+
+const userLoader = new DataLoader<string, any>(async (ids: readonly string[]) => {
+  try {
+    const { data } = await authApi.post('/users/batch', { ids }, { timeout: 5000 });
+    const users = data?.data ?? data ?? [];
+    const map = new Map(users.map((u: any) => [u.id, u]));
+    return ids.map(id => map.get(id) ?? null);
+  } catch {
+    return ids.map(() => null);
+  }
+});
+
+const userCache = new Map<string, { data: any; expiry: number }>();
+const USER_CACHE_TTL = 300000;
+
+async function getCachedUser(id: string): Promise<any> {
+  const cached = userCache.get(id);
+  if (cached && cached.expiry > Date.now()) return cached.data;
+  const user = await userLoader.load(id);
+  userCache.set(id, { data: user, expiry: Date.now() + USER_CACHE_TTL });
+  return user;
 }
 
 function extractMessage(raw: any): any {
@@ -45,6 +68,30 @@ function extractMessage(raw: any): any {
 }
 
 export const resolvers = {
+  Conversation: {
+    members: async (parent: any, _: any, context: { userId: string }) => {
+      if (!parent.members) return [];
+      return Promise.all(
+        parent.members.map(async (m: any) => {
+          const user = await getCachedUser(m.userId);
+          return { userId: m.userId, role: m.role, nickname: m.nickname, user };
+        })
+      );
+    },
+  },
+  ConversationMember: {
+    user: async (parent: any) => {
+      const user = await getCachedUser(parent.userId);
+      return user ? {
+        id: user.id,
+        username: user.username ?? user.id,
+        displayName: user.displayName ?? user.username ?? user.id,
+        avatarUrl: user.avatarUrl ?? null,
+        email: user.email ?? null,
+        bio: user.bio ?? null,
+      } : null;
+    },
+  },
   Query: {
     conversations: async (_: any, args: { page?: number; limit?: number }, context: { userId: string }) => {
       const { data } = await chatApi.get('/conversations', {
@@ -60,6 +107,7 @@ export const resolvers = {
         createdAt: new Date(c.createdAt).getTime(),
         unreadCount: c.unreadCount ?? 0,
         lastMessage: c.lastMessage ? extractMessage(c.lastMessage) : null,
+        members: c.members ?? [],
       }));
     },
 
@@ -76,6 +124,7 @@ export const resolvers = {
         createdAt: new Date(c.createdAt).getTime(),
         unreadCount: c.unreadCount ?? 0,
         lastMessage: c.lastMessage ? extractMessage(c.lastMessage) : null,
+        members: c.members ?? [],
       };
     },
 
@@ -102,8 +151,8 @@ export const resolvers = {
 
     user: async (_: any, args: { id: string }) => {
       try {
-        const { data } = await authApi.get(`/users/${args.id}`);
-        const u = data?.data ?? data;
+        const u = await getCachedUser(args.id);
+        if (!u) return null;
         return {
           id: u.id,
           username: u.username ?? u.id,
@@ -135,7 +184,7 @@ export const resolvers = {
   },
 
   Mutation: {
-    sendMessage: async (_: any, args: { conversationId: string; content: string; contentType?: string; attachments?: any[]; replyToId?: string }, context: { userId: string }) => {
+    sendMessage: async (_: any, args: { conversationId: string; content: string; contentType?: string; attachments?: any[]; replyToId?: string; clientMessageId?: string }, context: { userId: string }) => {
       const { data } = await chatApi.post(
         `/conversations/${args.conversationId}/messages`,
         {
@@ -143,6 +192,7 @@ export const resolvers = {
           contentType: args.contentType ?? 'TEXT',
           attachments: args.attachments ?? [],
           reply_to_id: args.replyToId,
+          client_message_id: args.clientMessageId,
         },
         { headers: getAuthHeaders(context.userId) }
       );

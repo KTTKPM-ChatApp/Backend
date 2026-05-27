@@ -25,19 +25,13 @@ const upload = multer({
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 10000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later' },
 });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many auth attempts, please try again later' },
-});
+
 
 const app = express();
 app.use(compression({ threshold: 1024 }));
@@ -45,9 +39,9 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', limiter);
 
-// Auth routes (public) - stricter rate limit
-app.post('/api/auth/register', authLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
-app.post('/api/auth/login', authLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
+// Auth routes (public)
+app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
+app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
 app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
 app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
 app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));

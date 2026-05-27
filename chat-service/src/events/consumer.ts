@@ -77,24 +77,51 @@ async function handleMessageSent(event: any): Promise<void> {
   const preview = formatPreview(content, attachments);
   const createdAtDate = new Date(createdAt);
 
-  // 1. Update read model (conversation_summaries) for ALL members
-  const summaries = resolvedMemberIds.map((memberId: string) => ({
-    userId: memberId,
-    conversationId,
-    lastMessageId: messageId,
-    lastMessagePreview: preview,
-    lastMessageAt: createdAtDate,
-    lastSenderId: senderId,
-    lastSenderName: resolvedSenderName,
-    conversationType: conversationType || undefined,
-    conversationTitle: conversationTitle || undefined,
-    conversationAvatar: conversationAvatar || undefined,
-  }));
-
+  // 1. Update read model (conversation_summaries) with atomic unreadCount increment
+  //    - Sender: update metadata only, don't increment unread
+  //    - Others: update metadata + atomic unreadCount += 1
   await Promise.allSettled(
-    summaries.map(s =>
-      summaryRepo().upsert(s, ['userId', 'conversationId'])
-    )
+    resolvedMemberIds.map(async (memberId: string) => {
+      const isSender = memberId === senderId;
+      const repo = summaryRepo();
+      const existing = await repo.findOneBy({ userId: memberId, conversationId });
+
+      if (existing) {
+        await repo
+          .createQueryBuilder()
+          .update(ConversationSummary)
+          .set({
+            lastMessageId: messageId,
+            lastMessagePreview: preview,
+            lastMessageAt: createdAtDate,
+            lastSenderId: senderId,
+            lastSenderName: resolvedSenderName,
+            conversationType: conversationType || undefined,
+            conversationTitle: conversationTitle || undefined,
+            conversationAvatar: conversationAvatar || undefined,
+            unreadCount: () => `unread_count ${isSender ? '+ 0' : '+ 1'}`,
+          })
+          .where('user_id = :userId AND conversation_id = :conversationId', {
+            userId: memberId,
+            conversationId,
+          })
+          .execute();
+      } else {
+        await repo.upsert({
+          userId: memberId,
+          conversationId,
+          lastMessageId: messageId,
+          lastMessagePreview: preview,
+          lastMessageAt: createdAtDate,
+          lastSenderId: senderId,
+          lastSenderName: resolvedSenderName,
+          conversationType: conversationType || undefined,
+          conversationTitle: conversationTitle || undefined,
+          conversationAvatar: conversationAvatar || undefined,
+          unreadCount: isSender ? 0 : 1,
+        }, ['userId', 'conversationId']);
+      }
+    })
   );
 
   // 2. Cache message in Redis read model (non-blocking)

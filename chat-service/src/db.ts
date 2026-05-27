@@ -21,6 +21,7 @@ export class Conversation {
 
 @Entity('conversation_members')
 @Index(['userId', 'conversationId'])
+@Index(['conversationId', 'role'])
 export class ConversationMember {
   @PrimaryColumn('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
   @PrimaryColumn('varchar', { length: 36, name: 'user_id' }) userId!: string;
@@ -37,6 +38,8 @@ export class ConversationMember {
 @Index(['conversationId', 'createdAt', 'id'])
 @Index(['conversationId', 'senderId'])
 @Index(['senderId', 'createdAt'])
+@Index(['conversationId', 'createdAt', 'id', 'senderId'])
+@Index(['replyToId'])
 export class Message {
   @PrimaryColumn('varchar', { length: 36 }) id!: string;
   @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
@@ -216,7 +219,9 @@ export interface ConversationFeatures {
 
 @Entity('conversation_summaries')
 @Index(['userId', 'lastMessageAt'])
+@Index(['userId', 'unreadCount'])
 @Index(['lastSenderId'])
+@Index(['conversationId'])
 export class ConversationSummary {
   @PrimaryColumn('varchar', { length: 36, name: 'user_id' }) userId!: string;
   @PrimaryColumn('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
