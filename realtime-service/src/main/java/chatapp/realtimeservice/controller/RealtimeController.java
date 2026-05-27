@@ -3,6 +3,7 @@ package chatapp.realtimeservice.controller;
 import chatapp.realtimeservice.dto.ApiResponse;
 import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
+import chatapp.realtimeservice.dto.MessageDeletedRequest;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
 import chatapp.realtimeservice.dto.NewConversationRequest;
 import chatapp.realtimeservice.dto.SystemEventRequest;
@@ -98,6 +99,34 @@ public class RealtimeController {
             logger.error("Failed to broadcast system event: {}", ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to broadcast system event: " + ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/internal/messages/delete")
+    public ResponseEntity<ApiResponse<Void>> notifyMessageDeleted(
+            @RequestBody MessageDeletedRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (validateInternalApiKey(apiKey)) {
+            logger.warn("Unauthorized internal message delete notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing message delete notification: message {} in conversation {}",
+                request.messageId(), request.conversationId());
+
+        try {
+            messageBroadcastService.broadcastMessageDelete(
+                    request.conversationId(),
+                    request.senderId(),
+                    request.messageId()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Message delete broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast message delete: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast message delete: " + ex.getMessage()));
         }
     }
 

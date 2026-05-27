@@ -646,6 +646,21 @@ export async function deleteMessage(
 
   await pinRepo().delete({ messageId, conversationId });
 
+  const { publishMessageDeleted } = await import('../../rabbitmq');
+  const { updateCachedMessageDeleted } = await import('../../redis-messages');
+  const allMembers = await memberRepo().find({ where: { conversationId } });
+  const allMemberIds = allMembers.map(m => m.userId);
+
+  updateCachedMessageDeleted(conversationId, messageId, Date.now());
+  publishMessageDeleted({
+    messageId,
+    conversationId,
+    senderId: userId,
+    senderName: '',
+    deletedAt: new Date().toISOString(),
+    allMemberIds,
+  });
+
   return {
     success: true,
     messageId,
