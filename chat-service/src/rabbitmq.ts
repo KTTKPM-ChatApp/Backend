@@ -96,6 +96,7 @@ export async function startConsumer(
     });
 
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_SENT);
+    await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED);
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, 'user.*');
 
     await channel.consume(queue.queue, async (msg) => {

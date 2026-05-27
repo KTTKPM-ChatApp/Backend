@@ -1,5 +1,6 @@
 import {
   ensureMember,
+  memberRepo,
   messageRepo,
   pinRepo,
 } from '../shared/message-context';
@@ -37,13 +38,16 @@ export async function deleteMessage(
 
   updateCachedMessageDeleted(conversationId, messageId, Date.now());
 
+  const members = await memberRepo().find({ where: { conversationId } });
+  const allMemberIds = members.map(m => m.userId);
+
   publishMessageDeleted({
     messageId,
     conversationId,
     senderId: userId,
     senderName: '',
     deletedAt: new Date().toISOString(),
-    allMemberIds: [],
+    allMemberIds,
   });
 
   return {
