@@ -1,7 +1,11 @@
 import { AppDataSource, ConversationSummary, User, ConversationMember, Message } from '../db';
 import { In } from 'typeorm';
 import { startConsumer } from '../rabbitmq';
+<<<<<<< HEAD
 import { notifyNewMessage } from '../notifier';
+=======
+import { notifyNewMessage, notifyMessageDeleted } from '../notifier';
+>>>>>>> origin/main
 import { cacheDeletePattern } from '../redis';
 import { clearUserCache } from '../auth-client';
 import { cacheMessage } from '../redis-messages';
@@ -27,6 +31,12 @@ export async function startEventConsumer(): Promise<void> {
       case 'chat.message.sent':
         await handleMessageSent(payload);
         break;
+<<<<<<< HEAD
+=======
+      case 'chat.message.deleted':
+        await handleMessageDeleted(payload);
+        break;
+>>>>>>> origin/main
       case 'user.created':
         await handleUserCreated(payload);
         break;
@@ -161,6 +171,64 @@ async function handleMessageSent(event: any): Promise<void> {
   console.log(`[Consumer] message.sent: ${messageId} -> ${resolvedMemberIds.length} members`);
 }
 
+<<<<<<< HEAD
+=======
+async function handleMessageDeleted(event: any): Promise<void> {
+  const data = event.data || event;
+  const { messageId, conversationId, senderId, senderName, deletedAt, allMemberIds } = data;
+
+  const preview = 'Đã thu hồi tin nhắn';
+
+  let resolvedMemberIds: string[] = allMemberIds || [];
+
+  try {
+    if (!resolvedMemberIds.length) {
+      const members = await memberRepo().find({ where: { conversationId } });
+      resolvedMemberIds = members.map(m => m.userId);
+    }
+  } catch (err) {
+    console.warn('[Consumer] failed to resolve members for delete:', err);
+  }
+
+  // 1. Update conversation_summaries preview for all members
+  await Promise.allSettled(
+    resolvedMemberIds.map(async (memberId: string) => {
+      const repo = summaryRepo();
+      const existing = await repo.findOneBy({ userId: memberId, conversationId });
+      if (existing && existing.lastMessageId === messageId) {
+        await repo
+          .createQueryBuilder()
+          .update(ConversationSummary)
+          .set({ lastMessagePreview: preview })
+          .where('user_id = :userId AND conversation_id = :conversationId', {
+            userId: memberId,
+            conversationId,
+          })
+          .execute();
+      }
+    })
+  );
+
+  // 2. Invalidate Redis conversation list cache
+  await Promise.allSettled(
+    resolvedMemberIds.map((memberId: string) =>
+      cacheDeletePattern(`convlist:${memberId}:*`)
+    )
+  );
+
+  // 3. Realtime notification via STOMP
+  const receiverIds = resolvedMemberIds.filter(id => id !== senderId);
+  await notifyMessageDeleted({
+    messageId,
+    conversationId,
+    senderId,
+    deletedAt: deletedAt || new Date().toISOString(),
+  });
+
+  console.log(`[Consumer] message.deleted: ${messageId} -> ${resolvedMemberIds.length} members`);
+}
+
+>>>>>>> origin/main
 async function handleUserCreated(event: any): Promise<void> {
   const data = event.data || event;
   const { id, username, displayName, avatarUrl, email, isActive, bio, gender, phone } = data;

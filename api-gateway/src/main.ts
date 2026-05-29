@@ -11,8 +11,12 @@ import { authenticate, AuthReq } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
 import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead, isUserOnline, getOnlineUserIds } from './socket-handler';
+<<<<<<< HEAD
 import { generateCloudinarySignature } from './cloudinary';
 import { connectRedis } from './redis';
+=======
+import { createProxyMiddleware } from 'http-proxy-middleware';
+>>>>>>> origin/main
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
 
@@ -184,6 +188,26 @@ app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(
 app.get('/api/messages/:messageId/reactions', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.messageId}/reactions`, true));
 app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
 
+<<<<<<< HEAD
+// AI Chatbot routes (protected)
+app.get('/api/chatbot/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
+app.post('/api/chatbot/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
+app.get('/api/chatbot/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
+app.delete('/api/chatbot/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
+app.get('/api/chatbot/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
+app.post('/api/chatbot/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
+
+// Personal Cloud routes (protected)
+app.get('/api/cloud/folders', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/folders`, true));
+app.post('/api/cloud/folders', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/folders`, true));
+app.delete('/api/cloud/folders/:id', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/folders/${req.params.id}`, true));
+
+app.get('/api/cloud/files', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/files`, true));
+app.post('/api/cloud/files', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/files`, true));
+app.delete('/api/cloud/files/:id', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/files/${req.params.id}`, true));
+
+=======
+>>>>>>> origin/main
 // Friend routes (protected)
 app.get('/api/friends', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends`));
 app.get('/api/friends/requests/pending', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/requests/pending`));
@@ -195,6 +219,7 @@ app.delete('/api/friends/:friendId', authenticate, (req, res) => proxy(req, res,
 app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
 app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
 
+<<<<<<< HEAD
 // Cloudinary signed upload (protected)
 app.post('/api/media/cloudinary-sign', authenticate, (req, res) => {
   try {
@@ -217,6 +242,14 @@ app.post('/api/media/cloudinary-sign', authenticate, (req, res) => {
 
 // Media upload routes (protected)
 app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/media/upload`, true));
+=======
+// Cloudinary signed upload (proxy → chat-service)
+app.post('/api/media/cloudinary-sign', authenticate, (req, res) =>
+  proxy(req, res, `${config.services.chat}/conversations/media/cloudinary-sign`, true));
+
+// Media upload routes (protected)
+app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/conversations/media/upload`, true));
+>>>>>>> origin/main
 
 // Internal callback for chat-service to push real-time notifications
 app.post('/api/internal/message-callback', async (req, res) => {
@@ -261,6 +294,7 @@ app.post('/api/internal/message-read-callback', async (req, res) => {
 });
 
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
+<<<<<<< HEAD
 app.get('/api/presence/online', authenticate, async (_, res) => {
   const data = await getOnlineUserIds();
   res.json({ success: true, data });
@@ -269,6 +303,12 @@ app.get('/api/presence/online', authenticate, async (_, res) => {
 async function bootstrap() {
   await connectRedis();
 
+=======
+app.get('/api/presence/online', authenticate, (req, res) =>
+  proxy(req, res, `${config.services.auth}/api/presence/online`, true));
+
+async function bootstrap() {
+>>>>>>> origin/main
   const httpServer = createServer(app);
 
   const apollo = new ApolloServer({
@@ -290,6 +330,26 @@ async function bootstrap() {
   );
 
   setupSocketIO(httpServer);
+<<<<<<< HEAD
+=======
+
+  // Proxy STOMP/SockJS (/ws) → realtime-service
+  // Express app.use('/ws') strips prefix from req.url, so we rewrite path back
+  app.use('/ws', createProxyMiddleware({
+    target: config.services.realtime,
+    changeOrigin: true,
+    ws: true,
+    pathRewrite: (path: string) => path === '/' ? '/ws' : `/ws${path}`,
+    on: {
+      proxyReq: (proxyReq, req) => {
+        if (req.headers.authorization) {
+          proxyReq.setHeader('Authorization', req.headers.authorization);
+        }
+      },
+    },
+  }));
+
+>>>>>>> origin/main
   httpServer.listen(config.port, () => {
     console.log(`API Gateway :${config.port}`);
     console.log(`GraphQL :${config.port}/graphql`);

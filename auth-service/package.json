@@ -8,6 +8,10 @@
     "seed": "ts-node src/seed.ts"
   },
   "dependencies": {
+<<<<<<< HEAD
+=======
+    "amqplib": "^0.10.5",
+>>>>>>> origin/main
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -16,8 +20,13 @@
     "express-validator": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.9.7",
+<<<<<<< HEAD
     "reflect-metadata": "^0.2.2",
     "amqplib": "^0.10.5",
+=======
+    "redis": "^4.7.0",
+    "reflect-metadata": "^0.2.2",
+>>>>>>> origin/main
     "typeorm": "^0.3.20",
     "uuid": "^9.0.1"
   },

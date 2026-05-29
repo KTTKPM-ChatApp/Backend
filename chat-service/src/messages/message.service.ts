@@ -91,16 +91,29 @@ export async function listMessages(
       const data = cachedData.get(id);
       if (!data) continue;
       const attachments = (data.attachments || []).map(normalizeAttachment).filter(Boolean);
+<<<<<<< HEAD
+=======
+      const isDeletedFromCache = Boolean(data.isDeleted);
+>>>>>>> origin/main
       cachedItems.push({
         messageId: data.messageId,
         conversationId,
         senderId: data.senderId,
         senderName: data.senderName || 'Người dùng',
+<<<<<<< HEAD
         body: data.body || '',
         contentType: data.contentType || detectContentType(data.body || '', attachments),
         attachments,
         createdAt: data.createdAt,
         isDeleted: false,
+=======
+        body: isDeletedFromCache ? '' : (data.body || ''),
+        contentType: data.contentType || detectContentType(isDeletedFromCache ? '' : (data.body || ''), attachments),
+        attachments: isDeletedFromCache ? [] : attachments,
+        createdAt: data.createdAt,
+        isDeleted: isDeletedFromCache,
+        deletedAt: data.deletedAt || null,
+>>>>>>> origin/main
         replyToMessageId: data.replyToMessageId || null,
         replyTo: null,
       });
@@ -130,13 +143,23 @@ export async function listMessages(
         for (const r of repliedMsgs) {
           const repliedMsg = cachedItems.find(m => m.replyToMessageId === r.id);
           if (repliedMsg) {
+<<<<<<< HEAD
+=======
+            const isReplyDeleted = r.isDeleted || false;
+>>>>>>> origin/main
             repliedMsg.replyTo = {
               messageId: r.id,
               senderId: r.senderId,
               senderName: senderMap.get(r.senderId) || 'Người dùng',
+<<<<<<< HEAD
               body: r.content,
               attachments: parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
               isDeleted: false,
+=======
+              body: isReplyDeleted ? '' : r.content,
+              attachments: isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
+              isDeleted: isReplyDeleted,
+>>>>>>> origin/main
             };
           }
         }
@@ -198,14 +221,25 @@ export async function listMessages(
     }
 
     for (const r of repliedMsgs) {
+<<<<<<< HEAD
       const repliedAttachments = parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
+=======
+      const isReplyDeleted = r.isDeleted || false;
+      const repliedAttachments = isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
+>>>>>>> origin/main
       repliedMessagesMap.set(r.id, {
         messageId: r.id,
         senderId: r.senderId,
         senderName: senderMap.get(r.senderId) || 'Người dùng',
+<<<<<<< HEAD
         body: r.content,
         attachments: repliedAttachments,
         isDeleted: false,
+=======
+        body: isReplyDeleted ? '' : r.content,
+        attachments: repliedAttachments,
+        isDeleted: isReplyDeleted,
+>>>>>>> origin/main
       });
     }
   }
@@ -229,6 +263,7 @@ export async function listMessages(
   const normalized = items
     .reverse()
     .map((msg) => {
+<<<<<<< HEAD
       const rawAttachments = parseAttachments(msg.attachments);
       const attachments = rawAttachments.map(normalizeAttachment).filter(Boolean);
       const contentType = detectContentType(msg.content, attachments);
@@ -236,11 +271,26 @@ export async function listMessages(
         ...msg,
         messageId: msg.id,
         body: msg.content,
+=======
+      const isDeleted = msg.isDeleted || false;
+      const rawAttachments = parseAttachments(msg.attachments);
+      const attachments = isDeleted ? [] : rawAttachments.map(normalizeAttachment).filter(Boolean);
+      const contentType = detectContentType(isDeleted ? '' : msg.content, attachments);
+      return {
+        ...msg,
+        messageId: msg.id,
+        body: isDeleted ? '' : msg.content,
+>>>>>>> origin/main
         contentType,
         attachments,
         senderName: senderNameMap.get(msg.senderId) || 'Người dùng',
         createdAt: toEpoch(msg.createdAt),
+<<<<<<< HEAD
         isDeleted: false,
+=======
+        isDeleted,
+        deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
+>>>>>>> origin/main
         replyToMessageId: msg.replyToId || null,
         replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
       };
@@ -279,6 +329,7 @@ export async function getMessageDetail(
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
 
+<<<<<<< HEAD
   const attachments = parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
   return {
     ...message,
@@ -289,6 +340,20 @@ export async function getMessageDetail(
     senderName,
     createdAt: toEpoch(message.createdAt),
     isDeleted: false,
+=======
+  const isDeleted = message.isDeleted || false;
+  const attachments = isDeleted ? [] : parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
+  return {
+    ...message,
+    messageId: message.id,
+    body: isDeleted ? '' : message.content,
+    contentType: detectContentType(isDeleted ? '' : message.content, attachments),
+    attachments,
+    senderName,
+    createdAt: toEpoch(message.createdAt),
+    isDeleted,
+    deletedAt: message.deletedAt ? toEpoch(message.deletedAt) : null,
+>>>>>>> origin/main
     replyToMessageId: message.replyToId || null,
   };
 }
@@ -359,6 +424,7 @@ export async function searchMessages(
   }
 
   return filtered.map((msg) => {
+<<<<<<< HEAD
     const attachments = parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
     return {
       ...msg,
@@ -369,6 +435,20 @@ export async function searchMessages(
       senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
       createdAt: toEpoch(msg.createdAt),
       isDeleted: false,
+=======
+    const isDeleted = msg.isDeleted || false;
+    const attachments = isDeleted ? [] : parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
+    return {
+      ...msg,
+      messageId: msg.id,
+      body: isDeleted ? '' : msg.content,
+      contentType: detectContentType(isDeleted ? '' : msg.content, attachments),
+      attachments,
+      senderName: searchSenderMap.get(msg.senderId) || 'Người dùng',
+      createdAt: toEpoch(msg.createdAt),
+      isDeleted,
+      deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
+>>>>>>> origin/main
       replyToMessageId: msg.replyToId || null,
     };
   });
@@ -639,9 +719,40 @@ export async function deleteMessage(
     throw new Error('You can only delete your own messages');
   }
 
+<<<<<<< HEAD
   await messageRepo().delete({ id: messageId });
   
   await pinRepo().delete({ messageId, conversationId });
   
   return { success: true, messageId };
+=======
+  await messageRepo().update(
+    { id: messageId },
+    { content: '', attachments: [], isDeleted: true, deletedAt: new Date() }
+  );
+
+  await pinRepo().delete({ messageId, conversationId });
+
+  const { publishMessageDeleted } = await import('../rabbitmq');
+  const { updateCachedMessageDeleted } = await import('../redis-messages');
+  const allMembers = await memberRepo().find({ where: { conversationId } });
+  const allMemberIds = allMembers.map(m => m.userId);
+
+  updateCachedMessageDeleted(conversationId, messageId, Date.now());
+  publishMessageDeleted({
+    messageId,
+    conversationId,
+    senderId: userId,
+    senderName: '',
+    deletedAt: new Date().toISOString(),
+    allMemberIds,
+  });
+
+  return {
+    success: true,
+    messageId,
+    isDeleted: true,
+    deletedAt: Date.now(),
+  };
+>>>>>>> origin/main
 }

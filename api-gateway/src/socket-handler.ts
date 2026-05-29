@@ -4,12 +4,34 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from './config';
 import axios from 'axios';
+<<<<<<< HEAD
 import * as presence from './redis';
+=======
+>>>>>>> origin/main
 
 const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 20 });
 const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 20 });
 let io: Server | null = null;
 
+<<<<<<< HEAD
+=======
+// In-memory socket ID mapping (local to this Gateway instance)
+const userSockets = new Map<string, Set<string>>();
+
+const presenceApi = axios.create({
+  baseURL: config.services.auth,
+  timeout: 3000,
+  headers: { 'x-internal-api-key': config.internalApiKey },
+  validateStatus: () => true,
+});
+
+async function callPresence(path: string, userId: string) {
+  try {
+    await presenceApi.post(`/api/presence${path}`, { userId });
+  } catch {}
+}
+
+>>>>>>> origin/main
 export function setupSocketIO(httpServer: HTTPServer): Server {
   const srv = new Server(httpServer, {
     cors: {
@@ -38,7 +60,14 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
   srv.on('connection', (socket: Socket) => {
     const userId = (socket as any).userId as string;
 
+<<<<<<< HEAD
     presence.presenceAdd(userId, socket.id);
+=======
+    // Track socket in-memory + notify Auth Service
+    if (!userSockets.has(userId)) userSockets.set(userId, new Set());
+    userSockets.get(userId)!.add(socket.id);
+    callPresence('/connect', userId);
+>>>>>>> origin/main
     srv.emit('presence:online', { userId });
 
     socket.on('chat:join', (data: { conversation_id: string }) => {
@@ -120,11 +149,27 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
     });
 
     socket.on('presence:heartbeat', async () => {
+<<<<<<< HEAD
       await presence.presenceHeartbeat(userId, socket.id);
     });
 
     socket.on('disconnect', async () => {
       await presence.presenceRemove(userId, socket.id);
+=======
+      callPresence('/heartbeat', userId);
+    });
+
+    socket.on('disconnect', async () => {
+      // Remove socket from in-memory tracking
+      const sockets = userSockets.get(userId);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          userSockets.delete(userId);
+          callPresence('/disconnect', userId);
+        }
+      }
+>>>>>>> origin/main
       srv.emit('presence:offline', { userId });
     });
 
@@ -180,10 +225,19 @@ export async function notifyConversation(conversationId: string, message: any) {
 export async function notifyNewConversation(conversation: any) {
   if (io && conversation?.memberIds) {
     for (const memberId of conversation.memberIds) {
+<<<<<<< HEAD
       const socketIds = await presence.getConnectedSocketIds(memberId);
       socketIds.forEach((socketId) => {
         io?.to(socketId).emit('conversation:created', conversation);
       });
+=======
+      const socketIds = userSockets.get(memberId);
+      if (socketIds) {
+        socketIds.forEach((socketId) => {
+          io?.to(socketId).emit('conversation:created', conversation);
+        });
+      }
+>>>>>>> origin/main
     }
   }
 }
@@ -200,9 +254,27 @@ export async function notifyMessageRead(conversationId: string, userId: string, 
 }
 
 export async function getOnlineUserIds(): Promise<string[]> {
+<<<<<<< HEAD
   return presence.getOnlineUserIds();
 }
 
 export async function isUserOnline(userId: string): Promise<boolean> {
   return presence.isUserOnline(userId);
+=======
+  try {
+    const res = await presenceApi.get('/api/presence/online');
+    return res.data?.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function isUserOnline(userId: string): Promise<boolean> {
+  try {
+    const res = await presenceApi.get(`/api/presence/online`, { params: { userId } });
+    return res.data?.data === true;
+  } catch {
+    return false;
+  }
+>>>>>>> origin/main
 }

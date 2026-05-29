@@ -1,6 +1,6 @@
 import amqp from 'amqplib';
 import { config } from './config';
-import { RABBITMQ } from '../shared/contracts/events';
+import { RABBITMQ } from '../../shared/contracts/events';
 export { RABBITMQ };
 
 let connection: amqp.ChannelModel | null = null;
@@ -96,6 +96,10 @@ export async function startConsumer(
     });
 
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_SENT);
+<<<<<<< HEAD
+=======
+    await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED);
+>>>>>>> origin/main
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, 'user.*');
 
     await channel.consume(queue.queue, async (msg) => {
@@ -173,6 +177,25 @@ export async function publishUserOnline(payload: {
   return publishEvent(RABBITMQ.ROUTING_KEYS.USER_ONLINE, event);
 }
 
+<<<<<<< HEAD
+=======
+export async function publishMessageDeleted(payload: {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  deletedAt: string;
+  allMemberIds: string[];
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.deleted',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED, event);
+}
+
+>>>>>>> origin/main
 export async function publishTyping(payload: {
   conversationId: string;
   userId: string;

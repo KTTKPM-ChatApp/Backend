@@ -78,6 +78,37 @@ export class RealtimeClientService extends BaseClient {
     }
   }
 
+<<<<<<< HEAD
+=======
+  async notifyMessageDeleted(payload: {
+    messageId: string;
+    conversationId: string;
+    senderId: string;
+    deletedAt: string;
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/messages/delete',
+        headers: this.headers,
+        data: {
+          message_id: payload.messageId,
+          conversation_id: payload.conversationId,
+          sender_id: payload.senderId,
+          deleted_at: payload.deletedAt,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify message delete:`, err.message);
+    }
+  }
+
+>>>>>>> origin/main
   async notifyNewConversation(payload: NewConversationPayload): Promise<void> {
     if (!this.realtimeBaseUrl) {
       console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');

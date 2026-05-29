@@ -1,6 +1,10 @@
 export const INTERNAL_API = {
   REALTIME: {
     NOTIFY_MESSAGE: '/api/v1/internal/messages/notify',
+<<<<<<< HEAD
+=======
+    NOTIFY_MESSAGE_DELETED: '/api/v1/internal/messages/delete',
+>>>>>>> origin/main
     NOTIFY_CONVERSATION: '/api/v1/internal/conversations/notify',
     SYSTEM_EVENT: '/api/v1/internal/events/system',
     USERS_ONLINE: '/api/v1/internal/users/online',

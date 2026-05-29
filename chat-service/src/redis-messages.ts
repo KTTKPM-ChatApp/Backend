@@ -135,6 +135,33 @@ export async function invalidateConversationCache(
   }
 }
 
+<<<<<<< HEAD
+=======
+export async function updateCachedMessageDeleted(
+  conversationId: string,
+  messageId: string,
+  deletedAt: number
+): Promise<void> {
+  const client = getRedisClient();
+  if (!client?.isOpen) return;
+
+  try {
+    const hashKey = msgHashKey(messageId);
+    const existing = await client.get(hashKey);
+    if (existing) {
+      const data = JSON.parse(existing);
+      data.isDeleted = true;
+      data.deletedAt = deletedAt;
+      data.body = '';
+      data.attachments = [];
+      await client.setEx(hashKey, MSG_CACHE_TTL, JSON.stringify(data));
+    }
+  } catch (error) {
+    console.error('Redis updateCachedMessageDeleted error:', error);
+  }
+}
+
+>>>>>>> origin/main
 export function isMessageCursorInRange(
   cursor: string | undefined,
   oldestMsgCreatedAt: number | null

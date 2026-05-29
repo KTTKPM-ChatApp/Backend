@@ -6,6 +6,10 @@ export const RABBITMQ = {
     MESSAGE_READ: 'chat.message.read',
     TYPING_START: 'chat.typing.start',
     TYPING_STOP: 'chat.typing.stop',
+<<<<<<< HEAD
+=======
+    MESSAGE_DELETED: 'chat.message.deleted',
+>>>>>>> origin/main
     USER_ONLINE: 'chat.user.online',
     USER_OFFLINE: 'chat.user.offline',
     USER_CREATED: 'user.created',
