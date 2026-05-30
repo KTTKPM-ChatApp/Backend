@@ -1,8 +1,8 @@
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware as apolloMiddleware } from '@apollo/server/express4';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
@@ -16,6 +16,7 @@ import { connectRedis } from './redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+import { RedisBackedRateLimitStore } from './rate-limit-store';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -24,25 +25,71 @@ const upload = multer({
   },
 });
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests, please try again later' },
-});
+function rateLimitKey(req: express.Request): string {
+  const userId = (req as AuthReq).userId;
+  return userId ? `user:${userId}` : `ip:${ipKeyGenerator(req.ip || '')}`;
+}
 
+function createLimiter(name: string, windowMs: number, max: number, message: string): RequestHandler {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKey,
+    store: new RedisBackedRateLimitStore(name),
+    message: { success: false, message },
+    handler: (req, res) => {
+      console.warn(`[RateLimit] ${name} blocked ${rateLimitKey(req)} ${req.method} ${req.originalUrl}`);
+      res.status(429).json({ success: false, message });
+    },
+  });
+}
 
+const apiLimiter = createLimiter(
+  'api',
+  15 * 60 * 1000,
+  Number(process.env.RATE_LIMIT_API_MAX) || 300,
+  'Too many requests, please try again later',
+);
+
+const authPublicLimiter = createLimiter(
+  'auth-public',
+  15 * 60 * 1000,
+  Number(process.env.RATE_LIMIT_AUTH_PUBLIC_MAX) || 20,
+  'Too many auth attempts, please try again later',
+);
+
+const messageWriteLimiter = createLimiter(
+  'message-write',
+  Number(process.env.RATE_LIMIT_MESSAGE_WRITE_WINDOW_MS) || 5 * 1000,
+  Number(process.env.RATE_LIMIT_MESSAGE_WRITE_MAX) || 3,
+  'You are sending messages too quickly',
+);
+
+const uploadLimiter = createLimiter(
+  'upload',
+  15 * 60 * 1000,
+  Number(process.env.RATE_LIMIT_UPLOAD_MAX) || 30,
+  'Too many uploads, please try again later',
+);
+
+const chatbotLimiter = createLimiter(
+  'chatbot',
+  15 * 60 * 1000,
+  Number(process.env.RATE_LIMIT_CHATBOT_MAX) || 60,
+  'Too many chatbot requests, please try again later',
+);
 
 const app = express();
 app.use(compression({ threshold: 1024 }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use('/api', limiter);
+app.use('/api', apiLimiter);
 
 // Auth routes (public)
-app.post('/api/auth/register', (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
-app.post('/api/auth/login', (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
+app.post('/api/auth/register', authPublicLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/register`));
+app.post('/api/auth/login', authPublicLimiter, (req, res) => proxy(req, res, `${config.services.auth}/auth/login`));
 app.post('/api/auth/refresh', (req, res) => proxy(req, res, `${config.services.auth}/auth/refresh`));
 app.post('/api/auth/logout', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/logout`));
 app.post('/api/auth/change-password', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/auth/change-password`));
@@ -170,7 +217,7 @@ app.post('/api/conversations/:conversationId/disband', authenticate, (req, res) 
 
 // Message routes (backward compatibility)
 app.get('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
-app.post('/api/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
+app.post('/api/conversations/:conversationId/messages', authenticate, messageWriteLimiter, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/messages`, true));
 
 // 7. Message management routes
 app.get('/api/messages/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}`, true));
@@ -178,7 +225,7 @@ app.get('/api/messages/:conversationId/search', authenticate, (req, res) => prox
 app.get('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
 app.patch('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
 app.delete('/api/messages/:conversationId/:createdAt/:messageId', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}`, true));
-app.post('/api/messages/forward', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
+app.post('/api/messages/forward', authenticate, messageWriteLimiter, (req, res) => proxy(req, res, `${config.services.chat}/messages/forward`, true));
 app.post('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
 app.delete('/api/messages/:conversationId/:createdAt/:messageId/pin', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/${req.params.createdAt}/${req.params.messageId}/pin`, true));
 app.get('/api/messages/:conversationId/pins', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/messages/${req.params.conversationId}/pins`, true));
@@ -189,12 +236,12 @@ app.delete('/api/messages/:conversationId/:createdAt/:messageId/reactions', auth
 app.get('/api/v1/messages/lookup/:messageId', (req, res) => proxy(req, res, `${config.services.chat}/messages/v1/messages/lookup/${req.params.messageId}`));
 
 // AI Chatbot routes (protected)
-app.get('/api/chatbot/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
-app.post('/api/chatbot/conversations', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
-app.get('/api/chatbot/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
-app.delete('/api/chatbot/conversations/:conversationId', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
-app.get('/api/chatbot/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
-app.post('/api/chatbot/conversations/:conversationId/messages', authenticate, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
+app.get('/api/chatbot/conversations', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
+app.post('/api/chatbot/conversations', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations`, true));
+app.get('/api/chatbot/conversations/:conversationId', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
+app.delete('/api/chatbot/conversations/:conversationId', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}`, true));
+app.get('/api/chatbot/conversations/:conversationId/messages', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
+app.post('/api/chatbot/conversations/:conversationId/messages', authenticate, chatbotLimiter, (req, res) => proxy(req, res, `${config.services.chatbot}/chatbot/conversations/${req.params.conversationId}/messages`, true));
 
 // Personal Cloud routes (protected)
 app.get('/api/cloud/folders', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/cloud/folders`, true));
@@ -216,11 +263,11 @@ app.post('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, re
 app.delete('/api/friends/:userId/block', authenticate, (req, res) => proxy(req, res, `${config.services.auth}/friends/${req.params.userId}/block`));
 
 // Cloudinary signed upload (proxy → chat-service)
-app.post('/api/media/cloudinary-sign', authenticate, (req, res) =>
+app.post('/api/media/cloudinary-sign', authenticate, uploadLimiter, (req, res) =>
   proxy(req, res, `${config.services.chat}/conversations/media/cloudinary-sign`, true));
 
 // Media upload routes (protected)
-app.post('/api/media/upload', authenticate, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/conversations/media/upload`, true));
+app.post('/api/media/upload', authenticate, uploadLimiter, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/conversations/media/upload`, true));
 
 // Internal callback for chat-service to push real-time notifications
 app.post('/api/internal/message-callback', async (req, res) => {

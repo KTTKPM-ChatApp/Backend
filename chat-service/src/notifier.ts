@@ -14,7 +14,10 @@ const realtimeClient = new RealtimeClientService(
   config.realtimeService.internalApiKey,
 );
 
-const gatewayClient = new GatewayClientService(config.gatewayService.url);
+const gatewayClient = new GatewayClientService(
+  config.gatewayService.url,
+  config.realtimeService.internalApiKey,
+);
 
 export async function notifyNewMessage(payload: NewMessagePayload): Promise<void> {
   await Promise.allSettled([

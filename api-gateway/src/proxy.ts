@@ -6,6 +6,7 @@ import { AuthReq } from './middleware';
 
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+const proxyTimeoutMs = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS) || 10000;
 
 export async function proxy(req: Request | AuthReq, res: Response, url: string, addUserId = false) {
   try {
@@ -27,6 +28,7 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
       headers,
       httpAgent,
       httpsAgent,
+      timeout: proxyTimeoutMs,
       validateStatus: () => true,
     });
 
@@ -34,7 +36,9 @@ export async function proxy(req: Request | AuthReq, res: Response, url: string, 
   } catch (error: any) {
     console.error('[API Gateway] Proxy error:', error);
     console.error('[API Gateway] Error details:', error?.response?.data || error?.message);
-    if (error.code === 'ECONNREFUSED') {
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      res.status(504).json({ message: 'Gateway timeout' });
+    } else if (error.code === 'ECONNREFUSED') {
       res.status(503).json({ message: 'Service unavailable' });
     } else {
       res.status(500).json({ message: 'Gateway error', details: error?.message });

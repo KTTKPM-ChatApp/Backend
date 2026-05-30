@@ -9,6 +9,7 @@ export interface MessageReadCallbackPayload {
 export class GatewayClientService extends BaseClient {
   constructor(
     private readonly gatewayBaseUrl: string,
+    private readonly internalApiKey: string,
   ) {
     super();
   }
@@ -22,6 +23,7 @@ export class GatewayClientService extends BaseClient {
       await this.request({
         method: 'POST',
         path: '/api/internal/message-callback',
+        headers: { 'x-internal-api-key': this.internalApiKey },
         data: { conversationId, message },
         timeout: 3000,
       });
@@ -35,6 +37,7 @@ export class GatewayClientService extends BaseClient {
       await this.request({
         method: 'POST',
         path: '/api/internal/conversation-callback',
+        headers: { 'x-internal-api-key': this.internalApiKey },
         data: { conversation },
         timeout: 3000,
       });
@@ -48,6 +51,7 @@ export class GatewayClientService extends BaseClient {
       await this.request({
         method: 'POST',
         path: '/api/internal/message-read-callback',
+        headers: { 'x-internal-api-key': this.internalApiKey },
         data: payload,
         timeout: 3000,
       });
