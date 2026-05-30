@@ -8,6 +8,9 @@ export const config = {
     username: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'auth_service',
+    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
+    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    connectRetryMaxDelayMs: Number(process.env.DB_CONNECT_RETRY_MAX_DELAY_MS) || 30000,
   },
   jwt: {
     secret: process.env.JWT_SECRET!,
@@ -17,10 +20,13 @@ export const config = {
   },
   rabbitmq: {
     url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
+    reconnectInitialDelayMs: Number(process.env.RABBITMQ_RECONNECT_INITIAL_DELAY_MS) || 1000,
+    reconnectMaxDelayMs: Number(process.env.RABBITMQ_RECONNECT_MAX_DELAY_MS) || 30000,
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
     port: Number(process.env.REDIS_PORT) || 6379,
     password: process.env.REDIS_PASSWORD || '',
+    reconnectMaxDelayMs: Number(process.env.REDIS_RECONNECT_MAX_DELAY_MS) || 30000,
   },
 };

@@ -20,9 +20,14 @@ app.get('/health', (_, res) => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function retryDelay(attempt: number, baseMs: number, maxMs: number) {
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
 async function initDatabaseWithRetry() {
-  const attempts = 20;
-  const delayMs = 3000;
+  const attempts = config.db.connectRetryAttempts;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -43,6 +48,11 @@ async function initDatabaseWithRetry() {
         throw error;
       }
 
+      const delayMs = retryDelay(
+        attempt,
+        config.db.connectRetryDelayMs,
+        config.db.connectRetryMaxDelayMs
+      );
       console.log(
         `[DB] Retrying in ${delayMs}ms (host=${config.db.host}, port=${config.db.port}, db=${config.db.database})`
       );

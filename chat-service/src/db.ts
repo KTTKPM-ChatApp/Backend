@@ -325,7 +325,7 @@ function buildDataSource(): DataSourceOptions {
       connectionLimit: config.db.poolSize,
       maxIdle: config.db.poolMaxIdle,
       idleTimeout: config.db.poolIdleTimeout,
-      acquireTimeout: 60000,
+      connectTimeout: 10000,
       waitForConnections: true,
       queueLimit: 100,
       enableKeepAlive: true,

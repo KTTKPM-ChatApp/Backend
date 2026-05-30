@@ -4,8 +4,32 @@ import { config } from './config';
 let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
 let rabbitConnected = false;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let reconnectAttempt = 0;
+let shuttingDown = false;
 
 const EXCHANGE_NAME = 'chat.events';
+
+function reconnectDelay() {
+  const baseMs = config.rabbitmq.reconnectInitialDelayMs;
+  const maxMs = config.rabbitmq.reconnectMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, reconnectAttempt));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
+function scheduleReconnect(reason: string) {
+  if (shuttingDown || reconnectTimer) return;
+
+  const delayMs = reconnectDelay();
+  reconnectAttempt += 1;
+  console.warn(`[Auth] RabbitMQ reconnecting in ${delayMs}ms: ${reason}`);
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await connectRabbitMQ();
+  }, delayMs);
+}
 
 export async function connectRabbitMQ(): Promise<void> {
   try {
@@ -13,6 +37,7 @@ export async function connectRabbitMQ(): Promise<void> {
     channel = await connection.createChannel();
     await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
     rabbitConnected = true;
+    reconnectAttempt = 0;
     console.log('[Auth] RabbitMQ connected');
 
     connection.connection.on('error', (err: Error) => {
@@ -21,16 +46,25 @@ export async function connectRabbitMQ(): Promise<void> {
     });
     connection.connection.on('close', () => {
       rabbitConnected = false;
+      channel = null;
+      connection = null;
       console.log('[Auth] RabbitMQ closed');
+      scheduleReconnect('connection closed');
     });
   } catch (error: any) {
     rabbitConnected = false;
     console.error('[Auth] Failed to connect RabbitMQ:', error?.message);
+    scheduleReconnect(error?.message || 'connect failed');
   }
 }
 
 export async function closeRabbitMQ(): Promise<void> {
   try {
+    shuttingDown = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     if (channel) { await channel.close(); channel = null; }
     if (connection) { await connection.close(); connection = null; }
     rabbitConnected = false;

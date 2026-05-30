@@ -6,6 +6,14 @@ let redisConnected = false;
 
 const inMemoryStore = new Map<string, Set<string>>();
 
+function redisReconnectDelay(retries: number) {
+  const baseMs = 1000;
+  const maxMs = config.redis.reconnectMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, retries - 1));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
 export async function connectRedis(): Promise<void> {
   try {
     redisClient = createClient({
@@ -13,7 +21,7 @@ export async function connectRedis(): Promise<void> {
         host: config.redis.host,
         port: config.redis.port,
         connectTimeout: 3000,
-        reconnectStrategy: false,
+        reconnectStrategy: redisReconnectDelay,
       },
       password: config.redis.password || undefined,
     });
@@ -22,7 +30,7 @@ export async function connectRedis(): Promise<void> {
       redisConnected = false;
     });
 
-    redisClient.on('connect', () => {
+    redisClient.on('ready', () => {
       redisConnected = true;
     });
 
@@ -39,7 +47,9 @@ export async function connectRedis(): Promise<void> {
 
 export async function closeRedis(): Promise<void> {
   if (redisClient) {
-    await redisClient.quit();
+    if (redisClient.isOpen) {
+      await redisClient.quit();
+    }
     redisClient = null;
     redisConnected = false;
   }

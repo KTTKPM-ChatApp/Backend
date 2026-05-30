@@ -4,6 +4,14 @@ import { config } from './config';
 let redisClient: RedisClientType | null = null;
 let redisConnected = false;
 
+function redisReconnectDelay(retries: number) {
+  const baseMs = 1000;
+  const maxMs = config.redis.reconnectMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, retries - 1));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
 export async function connectRedis(): Promise<void> {
   try {
     redisClient = createClient({
@@ -11,13 +19,13 @@ export async function connectRedis(): Promise<void> {
         host: config.redis.host,
         port: config.redis.port,
         connectTimeout: 3000,
-        reconnectStrategy: false,
+        reconnectStrategy: redisReconnectDelay,
       },
       password: config.redis.password || undefined,
     });
 
     redisClient.on('error', () => { redisConnected = false; });
-    redisClient.on('connect', () => { redisConnected = true; });
+    redisClient.on('ready', () => { redisConnected = true; });
     redisClient.on('end', () => { redisConnected = false; });
 
     await redisClient.connect();
@@ -29,7 +37,9 @@ export async function connectRedis(): Promise<void> {
 
 export async function closeRedis(): Promise<void> {
   if (redisClient) {
-    await redisClient.quit();
+    if (redisClient.isOpen) {
+      await redisClient.quit();
+    }
     redisClient = null;
     redisConnected = false;
   }
