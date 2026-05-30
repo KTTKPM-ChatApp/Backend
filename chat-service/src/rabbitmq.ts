@@ -96,10 +96,7 @@ export async function startConsumer(
     });
 
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_SENT);
-<<<<<<< HEAD
-=======
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED);
->>>>>>> origin/main
     await channel.bindQueue(queue.queue, EXCHANGE_NAME, 'user.*');
 
     await channel.consume(queue.queue, async (msg) => {
@@ -177,8 +174,6 @@ export async function publishUserOnline(payload: {
   return publishEvent(RABBITMQ.ROUTING_KEYS.USER_ONLINE, event);
 }
 
-<<<<<<< HEAD
-=======
 export async function publishMessageDeleted(payload: {
   messageId: string;
   conversationId: string;
@@ -195,7 +190,36 @@ export async function publishMessageDeleted(payload: {
   return publishEvent(RABBITMQ.ROUTING_KEYS.MESSAGE_DELETED, event);
 }
 
->>>>>>> origin/main
+export async function publishReactionAdded(payload: {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  emoji: string;
+  allMemberIds: string[];
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.reaction.added',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent(RABBITMQ.ROUTING_KEYS.REACTION_ADDED, event);
+}
+
+export async function publishReactionRemoved(payload: {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  emoji: string;
+  allMemberIds: string[];
+}): Promise<boolean> {
+  const event: ChatEvent = {
+    event: 'message.reaction.removed',
+    timestamp: new Date().toISOString(),
+    data: payload,
+  };
+  return publishEvent(RABBITMQ.ROUTING_KEYS.REACTION_REMOVED, event);
+}
+
 export async function publishTyping(payload: {
   conversationId: string;
   userId: string;

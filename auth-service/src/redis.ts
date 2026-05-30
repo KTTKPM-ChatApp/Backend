@@ -39,25 +39,27 @@ function isRedisConnected(): boolean {
   return redisConnected && redisClient?.isOpen === true;
 }
 
+const PRESENCE_SET_KEY = 'presence:users:online';
+
 export async function setUserOnline(userId: string): Promise<void> {
   if (!isRedisConnected()) return;
   try {
-    await redisClient!.sAdd('presence:online', userId);
-    await redisClient!.expire('presence:online', 120);
+    await redisClient!.sAdd(PRESENCE_SET_KEY, userId);
+    await redisClient!.expire(PRESENCE_SET_KEY, 120);
   } catch {}
 }
 
 export async function setUserOffline(userId: string): Promise<void> {
   if (!isRedisConnected()) return;
   try {
-    await redisClient!.sRem('presence:online', userId);
+    await redisClient!.sRem(PRESENCE_SET_KEY, userId);
   } catch {}
 }
 
 export async function isUserOnline(userId: string): Promise<boolean> {
   if (!isRedisConnected()) return false;
   try {
-    return await redisClient!.sIsMember('presence:online', userId);
+    return await redisClient!.sIsMember(PRESENCE_SET_KEY, userId);
   } catch {
     return false;
   }
@@ -66,7 +68,7 @@ export async function isUserOnline(userId: string): Promise<boolean> {
 export async function getOnlineUserIds(): Promise<string[]> {
   if (!isRedisConnected()) return [];
   try {
-    return await redisClient!.sMembers('presence:online');
+    return await redisClient!.sMembers(PRESENCE_SET_KEY);
   } catch {
     return [];
   }

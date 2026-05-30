@@ -100,6 +100,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         logger.warn("Invalid or missing JWT token for STOMP CONNECT");
                     } else {
                         accessor.setUser(new UserPrincipal(userId));
+                        logger.debug("Set user {} on STOMP CONNECT session {}", userId, accessor.getSessionId());
                     }
                 }
                 return message;

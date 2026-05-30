@@ -1,11 +1,7 @@
 import { AppDataSource, ConversationSummary, User, ConversationMember, Message } from '../db';
 import { In } from 'typeorm';
 import { startConsumer } from '../rabbitmq';
-<<<<<<< HEAD
-import { notifyNewMessage } from '../notifier';
-=======
-import { notifyNewMessage, notifyMessageDeleted } from '../notifier';
->>>>>>> origin/main
+import { notifyNewMessage, notifyMessageDeleted, notifyReactionAdded, notifyReactionRemoved } from '../notifier';
 import { cacheDeletePattern } from '../redis';
 import { clearUserCache } from '../auth-client';
 import { cacheMessage } from '../redis-messages';
@@ -31,12 +27,15 @@ export async function startEventConsumer(): Promise<void> {
       case 'chat.message.sent':
         await handleMessageSent(payload);
         break;
-<<<<<<< HEAD
-=======
       case 'chat.message.deleted':
         await handleMessageDeleted(payload);
         break;
->>>>>>> origin/main
+      case 'chat.message.reaction.added':
+        await handleReactionAdded(payload);
+        break;
+      case 'chat.message.reaction.removed':
+        await handleReactionRemoved(payload);
+        break;
       case 'user.created':
         await handleUserCreated(payload);
         break;
@@ -171,8 +170,6 @@ async function handleMessageSent(event: any): Promise<void> {
   console.log(`[Consumer] message.sent: ${messageId} -> ${resolvedMemberIds.length} members`);
 }
 
-<<<<<<< HEAD
-=======
 async function handleMessageDeleted(event: any): Promise<void> {
   const data = event.data || event;
   const { messageId, conversationId, senderId, senderName, deletedAt, allMemberIds } = data;
@@ -228,7 +225,24 @@ async function handleMessageDeleted(event: any): Promise<void> {
   console.log(`[Consumer] message.deleted: ${messageId} -> ${resolvedMemberIds.length} members`);
 }
 
->>>>>>> origin/main
+async function handleReactionAdded(event: any): Promise<void> {
+  const data = event.data || event;
+  const { messageId, conversationId, userId, emoji } = data;
+
+  await notifyReactionAdded({ messageId, conversationId, userId, emoji });
+
+  console.log(`[Consumer] reaction.added: ${emoji} on ${messageId} by ${userId}`);
+}
+
+async function handleReactionRemoved(event: any): Promise<void> {
+  const data = event.data || event;
+  const { messageId, conversationId, userId, emoji } = data;
+
+  await notifyReactionRemoved({ messageId, conversationId, userId, emoji });
+
+  console.log(`[Consumer] reaction.removed: ${emoji} on ${messageId} by ${userId}`);
+}
+
 async function handleUserCreated(event: any): Promise<void> {
   const data = event.data || event;
   const { id, username, displayName, avatarUrl, email, isActive, bio, gender, phone } = data;

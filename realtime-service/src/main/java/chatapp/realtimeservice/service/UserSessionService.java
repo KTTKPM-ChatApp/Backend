@@ -31,6 +31,7 @@ public class UserSessionService {
 
         Principal principal = accessor.getUser();
         String sessionId = accessor.getSessionId();
+        logger.debug("SessionConnectedEvent: sessionId={}, principal={}", sessionId, principal);
         if (!(principal instanceof UserPrincipal) || principal.getName() == null || principal.getName().isBlank()
                 || sessionId == null || sessionId.isBlank()) {
             return;
@@ -59,6 +60,11 @@ public class UserSessionService {
                     logger.info("User offline: {}", sessionRemoval.userId());
                     messageBroadcastService.notifyPresenceChange(sessionRemoval.userId(), false);
                 });
+    }
+
+    public void extendSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return;
+        presenceRepository.extendSession(sessionId);
     }
 
     public boolean isUserOnline(String userId) {

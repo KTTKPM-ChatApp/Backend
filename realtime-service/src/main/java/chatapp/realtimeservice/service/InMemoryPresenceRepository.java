@@ -64,6 +64,11 @@ public class InMemoryPresenceRepository implements PresenceRepository {
     }
 
     @Override
+    public void extendSession(String sessionId) {
+        // In-memory: nothing to extend, sessions live until explicitly removed
+    }
+
+    @Override
     public boolean isUserOnline(String userId) {
         Set<String> sessions = userSessions.get(userId);
         return sessions != null && !sessions.isEmpty();

@@ -73,17 +73,12 @@ export async function getConversationMessages(
   
   // Parse attachments from JSON column on each message
   messages.forEach(msg => {
-<<<<<<< HEAD
-    const rawAtts = msg.attachments;
-    if (Array.isArray(rawAtts)) {
-=======
     const isDeleted = msg.isDeleted || false;
     const rawAtts = msg.attachments;
     if (isDeleted) {
       (msg as any).attachments = [];
       (msg as any).content = '';
     } else if (Array.isArray(rawAtts)) {
->>>>>>> origin/main
       (msg as any).attachments = rawAtts;
     } else if (typeof rawAtts === 'string') {
       try { (msg as any).attachments = JSON.parse(rawAtts); } catch { (msg as any).attachments = []; }
@@ -193,25 +188,17 @@ export async function sendMessage(
 }
 
 // Media Upload Service
-<<<<<<< HEAD
-export async function uploadMedia(userId: string, file: any) {
+export async function uploadMedia(userId: string, file: Express.Multer.File) {
   try {
     // Generate unique key and URL
     const key = `media/${uuid()}-${file.originalname}`;
-    const url = `http://localhost:3003/uploads/${key}`; // For now, use local storage
-    
+    const url = `http://localhost:3003/uploads/${key}`;
+
     // In a production environment, you would:
     // 1. Upload file to S3, CloudFront, or other storage service
     // 2. Store the file info in database for tracking
     // 3. Return the proper CDN URL
-    
-=======
-export async function uploadMedia(userId: string, file: Express.Multer.File) {
-  try {
-    const key = `media/${uuid()}-${file.originalname}`;
-    const url = `http://localhost:3003/uploads/${key}`;
 
->>>>>>> origin/main
     return {
       id: uuid(),
       key,

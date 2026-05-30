@@ -4,11 +4,8 @@ import { authenticate, validate, AuthReq } from '../middleware';
 import * as chatService from './chat.service';
 import conversationRouter from '../conversations/conversation.router';
 import multer from 'multer';
-<<<<<<< HEAD
-=======
 import { generateCloudinarySignature } from './cloudinary';
 import { config } from '../config';
->>>>>>> origin/main
 
 // Configure multer for file uploads
 const upload = multer({
@@ -105,8 +102,6 @@ router.post('/:conversationId/messages',
 );
 
 /**
-<<<<<<< HEAD
-=======
  * POST /media/cloudinary-sign
  * @header x-user-id string
  * @body resourceType string (optional)
@@ -135,7 +130,6 @@ router.post('/media/cloudinary-sign',
 );
 
 /**
->>>>>>> origin/main
  * POST /media/upload
  * @header x-user-id string
  * @body file (multipart/form-data)
@@ -143,11 +137,7 @@ router.post('/media/cloudinary-sign',
 router.post('/media/upload',
   authenticate,
   upload.single('file'),
-<<<<<<< HEAD
-  (req, res, next) => {
-=======
   async (req, res) => {
->>>>>>> origin/main
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -156,40 +146,20 @@ router.post('/media/upload',
         });
       }
 
-<<<<<<< HEAD
-      // For now, return mock response with actual file info
-      const uploadResult = {
-        key: `upload-${Date.now()}-${req.file.originalname}`,
-        url: `http://localhost:3003/uploads/upload-${Date.now()}-${req.file.originalname}`,
-        visibility: "public",
-        thumbnailKey: null,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-      };
-      
-=======
       const uploadResult = await chatService.uploadMedia(
         req.headers['x-user-id'] as string,
         req.file
       );
 
->>>>>>> origin/main
       res.status(200).json({
         success: true,
         data: uploadResult,
         message: 'File uploaded successfully'
       });
     } catch (error: any) {
-<<<<<<< HEAD
-      res.status(500).json({ 
-        success: false, 
-        message: error.message || 'Upload failed' 
-=======
       res.status(500).json({
         success: false,
         message: error.message || 'Upload failed'
->>>>>>> origin/main
       });
     }
   }

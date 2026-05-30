@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Repository
 @ConditionalOnProperty(name = "presence.store", havingValue = "redis")
@@ -13,6 +14,8 @@ public class RedisPresenceRepository implements PresenceRepository {
     private static final String ONLINE_USERS_KEY = "presence:users:online";
     private static final String USER_SESSIONS_PREFIX = "presence:user:sessions:";
     private static final String SESSION_USER_PREFIX = "presence:session:user:";
+
+    private static final long SESSION_TTL_SECONDS = 120;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -32,7 +35,12 @@ public class RedisPresenceRepository implements PresenceRepository {
         }
 
         redisTemplate.opsForSet().add(userSessionsKey(userId), sessionId);
+        redisTemplate.expire(sessionUserKey(sessionId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+        redisTemplate.expire(userSessionsKey(userId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
         Long becameOnline = redisTemplate.opsForSet().add(ONLINE_USERS_KEY, userId);
+        if (Long.valueOf(1L).equals(becameOnline)) {
+            redisTemplate.expire(ONLINE_USERS_KEY, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+        }
         return Long.valueOf(1L).equals(becameOnline);
     }
 
@@ -58,6 +66,15 @@ public class RedisPresenceRepository implements PresenceRepository {
         }
 
         return Optional.of(new SessionRemoval(userId, becameOffline));
+    }
+
+    @Override
+    public void extendSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return;
+        String userId = redisTemplate.opsForValue().get(sessionUserKey(sessionId));
+        if (userId == null || userId.isBlank()) return;
+        redisTemplate.expire(sessionUserKey(sessionId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+        redisTemplate.expire(userSessionsKey(userId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
     }
 
     @Override

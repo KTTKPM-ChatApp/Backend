@@ -73,18 +73,6 @@ export async function searchMessages(
   }
 
   return filtered.map((msg) => {
-<<<<<<< HEAD
-    const attachments = parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
-    return {
-      ...msg,
-      messageId: msg.id,
-      body: msg.content,
-      contentType: detectContentType(msg.content, attachments),
-      attachments,
-      senderName: searchSenderMap.get(msg.senderId) || 'Nguoi dung',
-      createdAt: toEpoch(msg.createdAt),
-      isDeleted: false,
-=======
     const isDeleted = msg.isDeleted || false;
     const attachments = isDeleted ? [] : parseAttachments(msg.attachments).map(normalizeAttachment).filter(Boolean);
     return {
@@ -97,7 +85,6 @@ export async function searchMessages(
       createdAt: toEpoch(msg.createdAt),
       isDeleted,
       deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
->>>>>>> origin/main
       replyToMessageId: msg.replyToId || null,
     };
   });

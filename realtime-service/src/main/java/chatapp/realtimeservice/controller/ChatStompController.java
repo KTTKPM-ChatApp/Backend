@@ -1,6 +1,7 @@
 package chatapp.realtimeservice.controller;
 
 import chatapp.realtimeservice.service.MessageBroadcastService;
+import chatapp.realtimeservice.service.UserSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -15,9 +16,12 @@ public class ChatStompController {
     private static final Logger logger = LoggerFactory.getLogger(ChatStompController.class);
 
     private final MessageBroadcastService messageBroadcastService;
+    private final UserSessionService userSessionService;
 
-    public ChatStompController(MessageBroadcastService messageBroadcastService) {
+    public ChatStompController(MessageBroadcastService messageBroadcastService,
+                               UserSessionService userSessionService) {
         this.messageBroadcastService = messageBroadcastService;
+        this.userSessionService = userSessionService;
     }
 
     @MessageMapping("/chat/join")
@@ -53,6 +57,14 @@ public class ChatStompController {
         logger.info("User {} left conversation {}", userId, conversationId);
     }
 
+    @MessageMapping("/presence/heartbeat")
+    public void handleHeartbeat(SimpMessageHeaderAccessor headerAccessor) {
+        String sessionId = headerAccessor.getSessionId();
+        if (sessionId != null && !sessionId.isBlank()) {
+            userSessionService.extendSession(sessionId);
+        }
+    }
+
     @MessageMapping("/chat/typing")
     public void handleChatTyping(Map<String, Object> payload, SimpMessageHeaderAccessor headerAccessor) {
         String conversationId = payload.get("conversation_id") != null
@@ -60,22 +72,15 @@ public class ChatStompController {
                 : null;
         Principal principal = headerAccessor.getUser();
         String userId = principal != null ? principal.getName() : "unknown";
-<<<<<<< HEAD
-=======
         String displayName = payload.get("display_name") != null
                 ? payload.get("display_name").toString()
                 : userId;
->>>>>>> origin/main
 
         if (conversationId == null || conversationId.isBlank()) {
             return;
         }
 
-<<<<<<< HEAD
-        messageBroadcastService.broadcastTyping(conversationId, userId);
-=======
         messageBroadcastService.broadcastTyping(conversationId, userId, displayName);
->>>>>>> origin/main
     }
 
     @MessageMapping("/chat/delete")
@@ -142,22 +147,59 @@ public class ChatStompController {
                 : null;
         Principal principal = headerAccessor.getUser();
         String userId = principal != null ? principal.getName() : "unknown";
-<<<<<<< HEAD
-=======
         String displayName = payload.get("display_name") != null
                 ? payload.get("display_name").toString()
                 : userId;
->>>>>>> origin/main
 
         if (conversationId == null || conversationId.isBlank()) {
             return;
         }
 
-<<<<<<< HEAD
-        messageBroadcastService.broadcastStopTyping(conversationId, userId);
-=======
         messageBroadcastService.broadcastStopTyping(conversationId, userId, displayName);
->>>>>>> origin/main
+    }
+
+    @MessageMapping("/reaction.add")
+    public void handleReactionAdd(Map<String, Object> payload, SimpMessageHeaderAccessor headerAccessor) {
+        String conversationId = payload.get("conversation_id") != null
+                ? payload.get("conversation_id").toString()
+                : null;
+        String messageId = payload.get("message_id") != null
+                ? payload.get("message_id").toString()
+                : null;
+        String emoji = payload.get("emoji") != null
+                ? payload.get("emoji").toString()
+                : null;
+        Principal principal = headerAccessor.getUser();
+        String userId = principal != null ? principal.getName() : "unknown";
+
+        if (conversationId == null || conversationId.isBlank() || messageId == null || messageId.isBlank() || emoji == null || emoji.isBlank()) {
+            logger.warn("User {} attempted to add reaction with missing params", userId);
+            return;
+        }
+
+        messageBroadcastService.broadcastReactionAdded(conversationId, userId, messageId, emoji);
+    }
+
+    @MessageMapping("/reaction.remove")
+    public void handleReactionRemove(Map<String, Object> payload, SimpMessageHeaderAccessor headerAccessor) {
+        String conversationId = payload.get("conversation_id") != null
+                ? payload.get("conversation_id").toString()
+                : null;
+        String messageId = payload.get("message_id") != null
+                ? payload.get("message_id").toString()
+                : null;
+        String emoji = payload.get("emoji") != null
+                ? payload.get("emoji").toString()
+                : null;
+        Principal principal = headerAccessor.getUser();
+        String userId = principal != null ? principal.getName() : "unknown";
+
+        if (conversationId == null || conversationId.isBlank() || messageId == null || messageId.isBlank() || emoji == null || emoji.isBlank()) {
+            logger.warn("User {} attempted to remove reaction with missing params", userId);
+            return;
+        }
+
+        messageBroadcastService.broadcastReactionRemoved(conversationId, userId, messageId, emoji);
     }
 
     @MessageMapping("/message.read")

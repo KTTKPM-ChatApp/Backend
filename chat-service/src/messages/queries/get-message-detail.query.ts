@@ -31,18 +31,6 @@ export async function getMessageDetail(
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
 
-<<<<<<< HEAD
-  const attachments = parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
-  return {
-    ...message,
-    messageId: message.id,
-    body: message.content,
-    contentType: detectContentType(message.content, attachments),
-    attachments,
-    senderName,
-    createdAt: toEpoch(message.createdAt),
-    isDeleted: false,
-=======
   const isDeleted = message.isDeleted || false;
   const attachments = isDeleted ? [] : parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
   return {
@@ -55,7 +43,6 @@ export async function getMessageDetail(
     createdAt: toEpoch(message.createdAt),
     isDeleted,
     deletedAt: message.deletedAt ? toEpoch(message.deletedAt) : null,
->>>>>>> origin/main
     replyToMessageId: message.replyToId || null,
   };
 }
