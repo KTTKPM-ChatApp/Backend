@@ -59,6 +59,10 @@ export function isRedisConnected(): boolean {
   return redisConnected && redisClient?.isOpen === true;
 }
 
+export function getRedisClient(): RedisClientType | null {
+  return isRedisConnected() ? redisClient : null;
+}
+
 export async function presenceAdd(userId: string, socketId: string): Promise<void> {
   if (isRedisConnected()) {
     try {

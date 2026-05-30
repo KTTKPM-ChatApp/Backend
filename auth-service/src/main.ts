@@ -16,12 +16,22 @@ app.use(cors(), express.json());
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: Number(process.env.RATE_LIMIT_AUTH_MAX) || 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many auth attempts, please try again later' },
 });
 
+const publicAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_AUTH_PUBLIC_MAX) || 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login/register attempts, please try again later' },
+});
+
+app.use('/auth/login', publicAuthLimiter);
+app.use('/auth/register', publicAuthLimiter);
 app.use('/auth', authLimiter, authRouter);
 app.use('/users', userRouter);
 app.use('/friends', friendRouter);
