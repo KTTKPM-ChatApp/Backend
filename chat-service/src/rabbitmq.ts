@@ -7,8 +7,34 @@ let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
 let rabbitConnected = false;
 let rabbitLastError: string | null = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let reconnectAttempt = 0;
+let shuttingDown = false;
+let consumerHandler: ((routingKey: string, payload: any) => Promise<void>) | null = null;
 
 const EXCHANGE_NAME = config.rabbitmq.exchange;
+
+function reconnectDelay() {
+  const baseMs = config.rabbitmq.reconnectInitialDelayMs;
+  const maxMs = config.rabbitmq.reconnectMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, reconnectAttempt));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
+function scheduleReconnect(reason: string) {
+  if (shuttingDown || reconnectTimer) return;
+
+  const delayMs = reconnectDelay();
+  reconnectAttempt += 1;
+  rabbitLastError = reason;
+  console.warn(`[RabbitMQ] Reconnecting in ${delayMs}ms: ${reason}`);
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await connectRabbitMQ();
+  }, delayMs);
+}
 
 export async function connectRabbitMQ(): Promise<void> {
   try {
@@ -20,6 +46,7 @@ export async function connectRabbitMQ(): Promise<void> {
 
     rabbitConnected = true;
     rabbitLastError = null;
+    reconnectAttempt = 0;
     console.log('RabbitMQ connected successfully');
 
     connection.connection.on('error', (err: Error) => {
@@ -30,18 +57,30 @@ export async function connectRabbitMQ(): Promise<void> {
 
     connection.connection.on('close', () => {
       rabbitConnected = false;
+      channel = null;
+      connection = null;
       console.log('RabbitMQ connection closed');
+      scheduleReconnect('connection closed');
     });
+
+    if (consumerHandler) {
+      await startConsumer(consumerHandler);
+    }
   } catch (error: any) {
     rabbitConnected = false;
     rabbitLastError = error?.message || 'Unknown RabbitMQ error';
     console.error('Failed to connect to RabbitMQ:', error?.message);
-    // Don't throw - keep service boot resilient
+    scheduleReconnect(rabbitLastError || 'Unknown RabbitMQ error');
   }
 }
 
 export async function closeRabbitMQ(): Promise<void> {
   try {
+    shuttingDown = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     if (channel) {
       await channel.close();
       channel = null;
@@ -83,6 +122,7 @@ export async function publishEvent(routingKey: string, payload: any): Promise<bo
 export async function startConsumer(
   handler: (routingKey: string, payload: any) => Promise<void>,
 ): Promise<void> {
+  consumerHandler = handler;
   if (!channel || !rabbitConnected) {
     console.warn('RabbitMQ not connected, cannot start consumer');
     return;

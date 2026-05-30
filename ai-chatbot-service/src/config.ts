@@ -8,6 +8,9 @@ export const config = {
     username: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'ai_chatbot_service',
+    connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
+    connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    connectRetryMaxDelayMs: Number(process.env.DB_CONNECT_RETRY_MAX_DELAY_MS) || 30000,
   },
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',

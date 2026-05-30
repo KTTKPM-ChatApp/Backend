@@ -10,6 +10,7 @@ export const config = {
     database: process.env.DB_NAME || 'chat_service',
     connectRetryAttempts: Number(process.env.DB_CONNECT_RETRY_ATTEMPTS) || 20,
     connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
+    connectRetryMaxDelayMs: Number(process.env.DB_CONNECT_RETRY_MAX_DELAY_MS) || 30000,
     authSwitchHandler: () => {},
     poolSize: Number(process.env.DB_POOL_SIZE) || 20,
     poolIdleTimeout: Number(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
@@ -23,11 +24,14 @@ export const config = {
     url: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',
     exchange: process.env.RABBITMQ_EXCHANGE || 'chat.events',
     routingKeyNewMessage: process.env.RABBITMQ_ROUTING_KEY_NEW_MESSAGE || 'chat.new_message',
+    reconnectInitialDelayMs: Number(process.env.RABBITMQ_RECONNECT_INITIAL_DELAY_MS) || 1000,
+    reconnectMaxDelayMs: Number(process.env.RABBITMQ_RECONNECT_MAX_DELAY_MS) || 30000,
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
     port: Number(process.env.REDIS_PORT) || 6379,
     password: process.env.REDIS_PASSWORD || '',
+    reconnectMaxDelayMs: Number(process.env.REDIS_RECONNECT_MAX_DELAY_MS) || 30000,
   },
   realtimeService: {
     url: process.env.REALTIME_SERVICE_URL || '',

@@ -63,21 +63,35 @@ export class Block {
 
 export const AppDataSource = new DataSource({
   type: 'mariadb',
-  ...config.db,
+  host: config.db.host,
+  port: config.db.port,
+  username: config.db.username,
+  password: config.db.password,
+  database: config.db.database,
   synchronize: process.env.NODE_ENV !== 'production',
   logging: false,
   entities: [User, RefreshToken, FriendRequest, Friendship, Block],
   connectorPackage: 'mysql2',
   extra: {
     connectionLimit: 10,
-    acquireTimeout: 60000,
-    timeout: 60000,
+    connectTimeout: 10000,
+    waitForConnections: true,
+    queueLimit: 100,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
   },
 });
 
+function retryDelay(attempt: number) {
+  const baseMs = config.db.connectRetryDelayMs;
+  const maxMs = config.db.connectRetryMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
 export async function initializeDataSource() {
-  const maxRetries = 10;
-  const retryDelay = 3000;
+  const maxRetries = config.db.connectRetryAttempts;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -91,8 +105,9 @@ export async function initializeDataSource() {
       if (attempt === maxRetries) {
         throw error;
       }
-      console.log(`Retrying in ${retryDelay}ms...`);
-      await sleep(retryDelay);
+      const delayMs = retryDelay(attempt);
+      console.log(`Retrying in ${delayMs}ms...`);
+      await sleep(delayMs);
     }
   }
 }
@@ -103,8 +118,7 @@ async function sleep(ms: number) {
 
 export async function ensureDatabase() {
   const { createConnection } = await import('mysql2/promise');
-  const maxRetries = 10;
-  const retryDelay = 3000;
+  const maxRetries = config.db.connectRetryAttempts;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -124,8 +138,9 @@ export async function ensureDatabase() {
       if (attempt === maxRetries) {
         throw error;
       }
-      console.log(`Retrying in ${retryDelay}ms...`);
-      await sleep(retryDelay);
+      const delayMs = retryDelay(attempt);
+      console.log(`Retrying in ${delayMs}ms...`);
+      await sleep(delayMs);
     }
   }
 }

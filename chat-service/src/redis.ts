@@ -4,12 +4,22 @@ import { config } from './config';
 let redisClient: RedisClientType | null = null;
 let redisLastError: string | null = null;
 
+function redisReconnectDelay(retries: number) {
+  const baseMs = 1000;
+  const maxMs = config.redis.reconnectMaxDelayMs;
+  const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, retries - 1));
+  const jitter = Math.floor(Math.random() * Math.min(baseMs, exponential) * 0.25);
+  return exponential + jitter;
+}
+
 export async function connectRedis(): Promise<void> {
   try {
     redisClient = createClient({
       socket: {
         host: config.redis.host,
         port: config.redis.port,
+        connectTimeout: 3000,
+        reconnectStrategy: redisReconnectDelay,
       },
       password: config.redis.password || undefined,
     });
@@ -19,7 +29,7 @@ export async function connectRedis(): Promise<void> {
       console.error('Redis Client Error:', err.message);
     });
 
-    redisClient.on('connect', () => {
+    redisClient.on('ready', () => {
       console.log('Redis connected successfully');
       redisLastError = null;
     });
@@ -33,7 +43,9 @@ export async function connectRedis(): Promise<void> {
 
 export async function closeRedis(): Promise<void> {
   if (redisClient) {
-    await redisClient.quit();
+    if (redisClient.isOpen) {
+      await redisClient.quit();
+    }
     redisClient = null;
     console.log('Redis connection closed');
   }
