@@ -7,6 +7,8 @@ public interface PresenceRepository {
 
     Optional<SessionRemoval> removeSession(String sessionId);
 
+    void extendSession(String sessionId);
+
     boolean isUserOnline(String userId);
 
     int getActiveSessionCount(String userId);

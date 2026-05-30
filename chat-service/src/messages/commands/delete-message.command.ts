@@ -1,17 +1,11 @@
 import {
   ensureMember,
-<<<<<<< HEAD
-  messageRepo,
-  pinRepo,
-} from '../shared/message-context';
-=======
   memberRepo,
   messageRepo,
   pinRepo,
 } from '../shared/message-context';
 import { publishMessageDeleted } from '../../rabbitmq';
 import { updateCachedMessageDeleted } from '../../redis-messages';
->>>>>>> origin/main
 
 export async function deleteMessage(
   userId: string,
@@ -35,12 +29,6 @@ export async function deleteMessage(
     throw new Error('You can only delete your own messages');
   }
 
-<<<<<<< HEAD
-  await messageRepo().delete({ id: messageId });
-  await pinRepo().delete({ messageId, conversationId });
-
-  return { success: true, messageId };
-=======
   await messageRepo().update(
     { id: messageId },
     { content: '', attachments: [], isDeleted: true, deletedAt: new Date() }
@@ -68,5 +56,4 @@ export async function deleteMessage(
     isDeleted: true,
     deletedAt: Date.now(),
   };
->>>>>>> origin/main
 }

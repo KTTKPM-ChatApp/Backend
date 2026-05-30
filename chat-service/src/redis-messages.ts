@@ -135,8 +135,6 @@ export async function invalidateConversationCache(
   }
 }
 
-<<<<<<< HEAD
-=======
 export async function updateCachedMessageDeleted(
   conversationId: string,
   messageId: string,
@@ -161,7 +159,6 @@ export async function updateCachedMessageDeleted(
   }
 }
 
->>>>>>> origin/main
 export function isMessageCursorInRange(
   cursor: string | undefined,
   oldestMsgCreatedAt: number | null

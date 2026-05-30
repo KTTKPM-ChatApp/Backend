@@ -30,6 +30,21 @@ router.get(
   }
 );
 
+router.get(
+  '/conversation/:conversationId/reactions',
+  authenticate,
+  [param('conversationId').isUUID()],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.getConversationReactions(req.userId!, req.params.conversationId);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
 router.patch(
   '/:conversationId/:createdAt/:messageId',
   authenticate,
@@ -214,6 +229,58 @@ router.get(
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(404).json({ message: e.message });
+    }
+  }
+);
+
+router.post(
+  '/:conversationId/:createdAt/:messageId/reactions',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+    body('emoji').isString().notEmpty(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.addReaction(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId,
+        req.body.emoji
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+router.delete(
+  '/:conversationId/:createdAt/:messageId/reactions',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('createdAt').isInt(),
+    param('messageId').isUUID(),
+    body('emoji').isString().notEmpty(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const data = await messageService.removeReaction(
+        req.userId!,
+        req.params.conversationId,
+        Number(req.params.createdAt),
+        req.params.messageId,
+        req.body.emoji
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
     }
   }
 );

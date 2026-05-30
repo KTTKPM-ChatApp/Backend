@@ -81,13 +81,10 @@
             <artifactId>testcontainers</artifactId>
             <scope>test</scope>
         </dependency>
-<<<<<<< HEAD
-=======
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
->>>>>>> origin/main
     </dependencies>
 
     <dependencyManagement>
@@ -104,18 +101,11 @@
 
     <build>
         <plugins>
-<<<<<<< HEAD
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.4.1</version>
                 <configuration>
-=======
-             <plugin>
-                 <groupId>org.springframework.boot</groupId>
-                 <artifactId>spring-boot-maven-plugin</artifactId>
-                 <version>3.4.1</version>
-                 <configuration>
->>>>>>> origin/main
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

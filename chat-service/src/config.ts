@@ -39,13 +39,10 @@ export const config = {
   gatewayService: {
     url: process.env.GATEWAY_SERVICE_URL || 'http://api-gateway:3000',
   },
-<<<<<<< HEAD
-=======
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
     apiKey: process.env.CLOUDINARY_API_KEY || '',
     apiSecret: process.env.CLOUDINARY_API_SECRET || '',
     uploadFolder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'zalo-chat',
   },
->>>>>>> origin/main
 };

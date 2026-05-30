@@ -50,11 +50,8 @@ export class Message {
   @Column('varchar', { length: 36, name: 'reply_to_id', nullable: true }) replyToId?: string;
   @Column('boolean', { name: 'is_edited', default: false }) isEdited!: boolean;
   @Column('datetime', { name: 'edited_at', nullable: true }) editedAt?: Date;
-<<<<<<< HEAD
-=======
   @Column('boolean', { name: 'is_deleted', default: false }) isDeleted!: boolean;
   @Column('datetime', { name: 'deleted_at', nullable: true }) deletedAt?: Date;
->>>>>>> origin/main
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
   @Column('varchar', { length: 20, default: 'text', name: 'type' }) type!: string;
@@ -256,7 +253,6 @@ export class MessageAttachment {
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
 }
 
-<<<<<<< HEAD
 @Entity('cloud_folders')
 @Index(['userId'])
 export class CloudFolder {
@@ -282,8 +278,6 @@ export class CloudFile {
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }
 
-=======
->>>>>>> origin/main
 // User entity for joining - read-only view from auth_service database
 @Entity('users')
 export class User {
@@ -323,11 +317,8 @@ function buildDataSource(): DataSourceOptions {
       MessageRead,
       ConversationSummary,
       User,
-<<<<<<< HEAD
       CloudFolder,
       CloudFile,
-=======
->>>>>>> origin/main
     ],
     connectorPackage: 'mysql2' as const,
     extra: {
