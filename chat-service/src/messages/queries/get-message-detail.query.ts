@@ -31,16 +31,18 @@ export async function getMessageDetail(
     console.warn('[getMessageDetail] senderName lookup failed:', err);
   }
 
-  const attachments = parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
+  const isDeleted = message.isDeleted || false;
+  const attachments = isDeleted ? [] : parseAttachments(message.attachments).map(normalizeAttachment).filter(Boolean);
   return {
     ...message,
     messageId: message.id,
-    body: message.content,
-    contentType: detectContentType(message.content, attachments),
+    body: isDeleted ? '' : message.content,
+    contentType: detectContentType(isDeleted ? '' : message.content, attachments),
     attachments,
     senderName,
     createdAt: toEpoch(message.createdAt),
-    isDeleted: false,
+    isDeleted,
+    deletedAt: message.deletedAt ? toEpoch(message.deletedAt) : null,
     replyToMessageId: message.replyToId || null,
   };
 }

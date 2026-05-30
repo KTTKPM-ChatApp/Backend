@@ -43,6 +43,33 @@ export async function notifyNewConversation(payload: NewConversationPayload): Pr
   ]);
 }
 
+export async function notifyMessageDeleted(payload: {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  deletedAt: string;
+}): Promise<void> {
+  await realtimeClient.notifyMessageDeleted(payload);
+}
+
+export async function notifyReactionAdded(payload: {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  emoji: string;
+}): Promise<void> {
+  await realtimeClient.notifyReactionAdded(payload);
+}
+
+export async function notifyReactionRemoved(payload: {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  emoji: string;
+}): Promise<void> {
+  await realtimeClient.notifyReactionRemoved(payload);
+}
+
 export async function notifySystemEvent(payload: SystemEventPayload, createdAt?: string): Promise<void> {
   await realtimeClient.notifySystemEvent(payload, createdAt);
 }

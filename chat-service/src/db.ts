@@ -50,6 +50,8 @@ export class Message {
   @Column('varchar', { length: 36, name: 'reply_to_id', nullable: true }) replyToId?: string;
   @Column('boolean', { name: 'is_edited', default: false }) isEdited!: boolean;
   @Column('datetime', { name: 'edited_at', nullable: true }) editedAt?: Date;
+  @Column('boolean', { name: 'is_deleted', default: false }) isDeleted!: boolean;
+  @Column('datetime', { name: 'deleted_at', nullable: true }) deletedAt?: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
   @Column('varchar', { length: 20, default: 'text', name: 'type' }) type!: string;
@@ -251,6 +253,31 @@ export class MessageAttachment {
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
 }
 
+@Entity('cloud_folders')
+@Index(['userId'])
+export class CloudFolder {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 255 }) name!: string;
+  @Column('varchar', { length: 36, name: 'user_id' }) userId!: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('cloud_files')
+@Index(['userId'])
+@Index(['folderId'])
+export class CloudFile {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 255 }) name!: string;
+  @Column('varchar', { length: 500 }) url!: string;
+  @Column('varchar', { length: 100, name: 'mime_type' }) mimeType!: string;
+  @Column('bigint') size!: number;
+  @Column('varchar', { length: 36, name: 'folder_id', nullable: true }) folderId?: string | null;
+  @Column('varchar', { length: 36, name: 'user_id' }) userId!: string;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
 // User entity for joining - read-only view from auth_service database
 @Entity('users')
 export class User {
@@ -290,6 +317,8 @@ function buildDataSource(): DataSourceOptions {
       MessageRead,
       ConversationSummary,
       User,
+      CloudFolder,
+      CloudFile,
     ],
     connectorPackage: 'mysql2' as const,
     extra: {

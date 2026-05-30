@@ -10,6 +10,8 @@ const httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 20 });
 const httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 20 });
 let io: Server | null = null;
 
+// In-memory socket ID mapping (local to this Gateway instance)
+const userSockets = new Map<string, Set<string>>();
 export function setupSocketIO(httpServer: HTTPServer): Server {
   const srv = new Server(httpServer, {
     cors: {
@@ -39,7 +41,8 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
     const userId = (socket as any).userId as string;
 
     presence.presenceAdd(userId, socket.id);
-    srv.emit('presence:online', { userId });
+    if (!userSockets.has(userId)) userSockets.set(userId, new Set());
+    userSockets.get(userId)!.add(socket.id);
 
     socket.on('chat:join', (data: { conversation_id: string }) => {
       if (data?.conversation_id) {
@@ -125,7 +128,13 @@ export function setupSocketIO(httpServer: HTTPServer): Server {
 
     socket.on('disconnect', async () => {
       await presence.presenceRemove(userId, socket.id);
-      srv.emit('presence:offline', { userId });
+      const sockets = userSockets.get(userId);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          userSockets.delete(userId);
+        }
+      }
     });
 
     socket.on('conversation:join', (data: { conversation_id: string }) => {
@@ -180,10 +189,16 @@ export async function notifyConversation(conversationId: string, message: any) {
 export async function notifyNewConversation(conversation: any) {
   if (io && conversation?.memberIds) {
     for (const memberId of conversation.memberIds) {
-      const socketIds = await presence.getConnectedSocketIds(memberId);
-      socketIds.forEach((socketId) => {
+      const redisSocketIds = await presence.getConnectedSocketIds(memberId);
+      redisSocketIds.forEach((socketId) => {
         io?.to(socketId).emit('conversation:created', conversation);
       });
+      const socketIds = userSockets.get(memberId);
+      if (socketIds) {
+        socketIds.forEach((socketId) => {
+          io?.to(socketId).emit('conversation:created', conversation);
+        });
+      }
     }
   }
 }
@@ -199,10 +214,4 @@ export async function notifyMessageRead(conversationId: string, userId: string, 
   }
 }
 
-export async function getOnlineUserIds(): Promise<string[]> {
-  return presence.getOnlineUserIds();
-}
 
-export async function isUserOnline(userId: string): Promise<boolean> {
-  return presence.isUserOnline(userId);
-}

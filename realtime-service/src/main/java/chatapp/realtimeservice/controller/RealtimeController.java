@@ -3,8 +3,10 @@ package chatapp.realtimeservice.controller;
 import chatapp.realtimeservice.dto.ApiResponse;
 import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
+import chatapp.realtimeservice.dto.MessageDeletedRequest;
 import chatapp.realtimeservice.dto.MessageNotificationRequest;
 import chatapp.realtimeservice.dto.NewConversationRequest;
+import chatapp.realtimeservice.dto.ReactionRequest;
 import chatapp.realtimeservice.dto.SystemEventRequest;
 import chatapp.realtimeservice.service.MessageBroadcastService;
 import chatapp.realtimeservice.service.PresenceRepository;
@@ -57,7 +59,7 @@ public class RealtimeController {
             @RequestBody MessageNotificationRequest notification,
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
         
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized internal message notification attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -76,7 +78,7 @@ public class RealtimeController {
             @RequestBody SystemEventRequest event,
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
 
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized internal system event attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -101,12 +103,97 @@ public class RealtimeController {
         }
     }
 
+    @PostMapping("/internal/messages/delete")
+    public ResponseEntity<ApiResponse<Void>> notifyMessageDeleted(
+            @RequestBody MessageDeletedRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (isInternalApiKeyInvalid(apiKey)) {
+            logger.warn("Unauthorized internal message delete notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing message delete notification: message {} in conversation {}",
+                request.messageId(), request.conversationId());
+
+        try {
+            messageBroadcastService.broadcastMessageDelete(
+                    request.conversationId(),
+                    request.senderId(),
+                    request.messageId()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Message delete broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast message delete: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast message delete: " + ex.getMessage()));
+        }
+    }
+    @PostMapping("/internal/messages/reactions/add")
+    public ResponseEntity<ApiResponse<Void>> notifyReactionAdded(
+            @RequestBody ReactionRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (isInternalApiKeyInvalid(apiKey)) {
+            logger.warn("Unauthorized internal reaction added notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing reaction added: {} on message {} in conv {} by {}",
+                request.emoji(), request.messageId(), request.conversationId(), request.userId());
+
+        try {
+            messageBroadcastService.broadcastReactionAdded(
+                    request.conversationId(),
+                    request.userId(),
+                    request.messageId(),
+                    request.emoji()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Reaction added broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast reaction added: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast reaction added: " + ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/internal/messages/reactions/remove")
+    public ResponseEntity<ApiResponse<Void>> notifyReactionRemoved(
+            @RequestBody ReactionRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (isInternalApiKeyInvalid(apiKey)) {
+            logger.warn("Unauthorized internal reaction removed notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing reaction removed: {} on message {} in conv {} by {}",
+                request.emoji(), request.messageId(), request.conversationId(), request.userId());
+
+        try {
+            messageBroadcastService.broadcastReactionRemoved(
+                    request.conversationId(),
+                    request.userId(),
+                    request.messageId(),
+                    request.emoji()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Reaction removed broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast reaction removed: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast reaction removed: " + ex.getMessage()));
+        }
+    }
+
     @PostMapping("/internal/conversations/created")
     public ResponseEntity<ApiResponse<Void>> notifyConversationCreated(
             @RequestBody ConversationCreatedRequest conversation,
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
 
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized internal conversation created attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -127,7 +214,7 @@ public class RealtimeController {
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey,
             @RequestHeader(value = "user-id") String userId) {
         
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized online status check attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -142,7 +229,7 @@ public class RealtimeController {
     public ResponseEntity<ApiResponse<Integer>> getOnlineUserCount(
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
         
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized stats request attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -158,7 +245,7 @@ public class RealtimeController {
             @RequestBody NewConversationRequest request,
             @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
 
-        if (validateInternalApiKey(apiKey)) {
+        if (isInternalApiKeyInvalid(apiKey)) {
             logger.warn("Unauthorized internal new conversation notification attempt");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Invalid internal API key"));
@@ -176,10 +263,9 @@ public class RealtimeController {
         }
     }
 
-    private boolean validateInternalApiKey(String apiKey) {
+    private boolean isInternalApiKeyInvalid(String apiKey) {
         if (internalApiKey == null || internalApiKey.isBlank()) {
-            logger.warn("Internal API key not configured");
-            return true;
+            return false;
         }
         return !internalApiKey.equals(apiKey);
     }

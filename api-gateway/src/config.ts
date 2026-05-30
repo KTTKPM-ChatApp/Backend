@@ -7,6 +7,8 @@ export const config = {
   services: {
     auth: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
     chat: process.env.CHAT_SERVICE_URL || 'http://localhost:3003',
+    chatbot: process.env.CHATBOT_SERVICE_URL || 'http://localhost:3005',
+    realtime: process.env.REALTIME_SERVICE_URL || 'http://localhost:8080',
   },
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME!,

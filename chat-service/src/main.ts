@@ -9,6 +9,7 @@ import { startEventConsumer } from './events/consumer';
 import { syncAllUsers } from './events/user-sync';
 import chatRouter from './chat/chat.router';
 import messageRouter from './messages/message.router';
+import cloudRouter from './cloud/cloud.router';
 
 const app = express();
 app.use(cors(), express.json());
@@ -17,6 +18,7 @@ app.use('/conversations', chatRouter);
 // Keep old /chat prefix for backward compatibility
 app.use('/chat', chatRouter);
 app.use('/messages', messageRouter);
+app.use('/cloud', cloudRouter);
 
 app.get('/health', (_, res) => {
   res.json({

@@ -78,6 +78,34 @@ export class RealtimeClientService extends BaseClient {
     }
   }
 
+  async notifyMessageDeleted(payload: {
+    messageId: string;
+    conversationId: string;
+    senderId: string;
+    deletedAt: string;
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/messages/delete',
+        headers: this.headers,
+        data: {
+          message_id: payload.messageId,
+          conversation_id: payload.conversationId,
+          sender_id: payload.senderId,
+          deleted_at: payload.deletedAt,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify message delete:`, err.message);
+    }
+  }
+
   async notifyNewConversation(payload: NewConversationPayload): Promise<void> {
     if (!this.realtimeBaseUrl) {
       console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
@@ -99,6 +127,62 @@ export class RealtimeClientService extends BaseClient {
       });
     } catch (err: any) {
       console.warn(`[RealtimeClient] Failed to notify conversation:`, err.message);
+    }
+  }
+
+  async notifyReactionAdded(payload: {
+    messageId: string;
+    conversationId: string;
+    userId: string;
+    emoji: string;
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/messages/reactions/add',
+        headers: this.headers,
+        data: {
+          message_id: payload.messageId,
+          conversation_id: payload.conversationId,
+          user_id: payload.userId,
+          emoji: payload.emoji,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify reaction added:`, err.message);
+    }
+  }
+
+  async notifyReactionRemoved(payload: {
+    messageId: string;
+    conversationId: string;
+    userId: string;
+    emoji: string;
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/messages/reactions/remove',
+        headers: this.headers,
+        data: {
+          message_id: payload.messageId,
+          conversation_id: payload.conversationId,
+          user_id: payload.userId,
+          emoji: payload.emoji,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify reaction removed:`, err.message);
     }
   }
 

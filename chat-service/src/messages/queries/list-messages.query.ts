@@ -33,11 +33,12 @@ export async function listMessages(
         conversationId,
         senderId: data.senderId,
         senderName: data.senderName || 'Nguoi dung',
-        body: data.body || '',
+        body: data.isDeleted ? '' : (data.body || ''),
         contentType: data.contentType || detectContentType(data.body || '', attachments),
         attachments,
         createdAt: data.createdAt,
-        isDeleted: false,
+        isDeleted: data.isDeleted || false,
+        deletedAt: data.deletedAt || null,
         replyToMessageId: data.replyToMessageId || null,
         replyTo: null,
       });
@@ -65,13 +66,14 @@ export async function listMessages(
         for (const r of repliedMsgs) {
           const repliedMsg = cachedItems.find(m => m.replyToMessageId === r.id);
           if (repliedMsg) {
+            const isReplyDeleted = r.isDeleted || false;
             repliedMsg.replyTo = {
               messageId: r.id,
               senderId: r.senderId,
               senderName: senderMap.get(r.senderId) || 'Nguoi dung',
-              body: r.content,
-              attachments: parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
-              isDeleted: false,
+              body: isReplyDeleted ? '' : r.content,
+              attachments: isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean),
+              isDeleted: isReplyDeleted,
             };
           }
         }
@@ -125,14 +127,15 @@ export async function listMessages(
     }
 
     for (const r of repliedMsgs) {
-      const repliedAttachments = parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
+      const isReplyDeleted = r.isDeleted || false;
+      const repliedAttachments = isReplyDeleted ? [] : parseAttachments(r.attachments).map(normalizeAttachment).filter(Boolean);
       repliedMessagesMap.set(r.id, {
         messageId: r.id,
         senderId: r.senderId,
         senderName: senderMap.get(r.senderId) || 'Nguoi dung',
-        body: r.content,
+        body: isReplyDeleted ? '' : r.content,
         attachments: repliedAttachments,
-        isDeleted: false,
+        isDeleted: isReplyDeleted,
       });
     }
   }
@@ -154,18 +157,20 @@ export async function listMessages(
   const normalized = items
     .reverse()
     .map((msg) => {
+      const isDeleted = msg.isDeleted || false;
       const rawAttachments = parseAttachments(msg.attachments);
-      const attachments = rawAttachments.map(normalizeAttachment).filter(Boolean);
-      const contentType = detectContentType(msg.content, attachments);
+      const attachments = isDeleted ? [] : rawAttachments.map(normalizeAttachment).filter(Boolean);
+      const contentType = detectContentType(isDeleted ? '' : msg.content, attachments);
       return {
         ...msg,
         messageId: msg.id,
-        body: msg.content,
+        body: isDeleted ? '' : msg.content,
         contentType,
-        attachments,
+        attachments: isDeleted ? [] : attachments,
         senderName: senderNameMap.get(msg.senderId) || 'Nguoi dung',
         createdAt: toEpoch(msg.createdAt),
-        isDeleted: false,
+        isDeleted,
+        deletedAt: msg.deletedAt ? toEpoch(msg.deletedAt) : null,
         replyToMessageId: msg.replyToId || null,
         replyTo: msg.replyToId ? (repliedMessagesMap.get(msg.replyToId) ?? null) : null,
       };

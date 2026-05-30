@@ -72,24 +72,24 @@ public class MessageBroadcastService {
         }
     }
 
-    public void broadcastTyping(String conversationId, String userId) {
+    public void broadcastTyping(String conversationId, String userId, String displayName) {
         String destination = "/topic/conv." + conversationId + "/typing";
         try {
             simpMessagingTemplate.convertAndSend(destination,
-                    new TypingEvent(conversationId, userId, true));
-            logger.debug("Typing broadcast: user {} in conversation {}", userId, conversationId);
+                    new TypingEvent(conversationId, userId, displayName, true));
+            logger.debug("Typing broadcast: user {} ({}) in conversation {}", userId, displayName, conversationId);
         } catch (Exception ex) {
             logger.warn("Failed to broadcast typing for user {} in conv {}: {}",
                     userId, conversationId, ex.getMessage());
         }
     }
 
-    public void broadcastStopTyping(String conversationId, String userId) {
+    public void broadcastStopTyping(String conversationId, String userId, String displayName) {
         String destination = "/topic/conv." + conversationId + "/typing";
         try {
             simpMessagingTemplate.convertAndSend(destination,
-                    new TypingEvent(conversationId, userId, false));
-            logger.debug("Stop typing broadcast: user {} in conversation {}", userId, conversationId);
+                    new TypingEvent(conversationId, userId, displayName, false));
+            logger.debug("Stop typing broadcast: user {} ({}) in conversation {}", userId, displayName, conversationId);
         } catch (Exception ex) {
             logger.warn("Failed to broadcast stop typing for user {} in conv {}: {}",
                     userId, conversationId, ex.getMessage());
@@ -160,7 +160,7 @@ public class MessageBroadcastService {
     public record PresenceUpdate(String userId, String event) {
     }
 
-    public record TypingEvent(String conversationId, String userId, boolean typing) {
+    public record TypingEvent(String conversationId, String userId, String displayName, boolean typing) {
     }
 
     public record ReadReceiptEvent(String conversationId, String userId, String messageId) {
@@ -209,6 +209,35 @@ public class MessageBroadcastService {
     }
 
     public record PinEvent(String conversationId, String userId, String messageId, boolean pinned) {
+    }
+
+    public void broadcastReactionAdded(String conversationId, String userId, String messageId, String emoji) {
+        String destination = "/topic/conv." + conversationId + "/reaction";
+        try {
+            simpMessagingTemplate.convertAndSend(destination,
+                    new ReactionEvent(conversationId, userId, messageId, emoji, "added"));
+            logger.info("Reaction added broadcast: {} -> {} on message {} in conv {}",
+                    userId, emoji, messageId, conversationId);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast reaction added for user {} in conv {}: {}",
+                    userId, conversationId, ex.getMessage());
+        }
+    }
+
+    public void broadcastReactionRemoved(String conversationId, String userId, String messageId, String emoji) {
+        String destination = "/topic/conv." + conversationId + "/reaction";
+        try {
+            simpMessagingTemplate.convertAndSend(destination,
+                    new ReactionEvent(conversationId, userId, messageId, emoji, "removed"));
+            logger.info("Reaction removed broadcast: {} -> {} on message {} in conv {}",
+                    userId, emoji, messageId, conversationId);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast reaction removed for user {} in conv {}: {}",
+                    userId, conversationId, ex.getMessage());
+        }
+    }
+
+    public record ReactionEvent(String conversationId, String userId, String messageId, String emoji, String action) {
     }
 
     public void broadcastSystemEvent(String conversationId, String messageId, String senderId,
