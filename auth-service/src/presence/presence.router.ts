@@ -12,7 +12,7 @@ function internalApiKeyOnly(req: Request, res: Response, next: Function) {
   next();
 }
 
-// Internal endpoints (service-to-service, called by Gateway socket-handler)
+// Internal endpoints (service-to-service, called by realtime-service or trusted services)
 router.post('/connect', internalApiKeyOnly, async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ success: false, message: 'userId required' });

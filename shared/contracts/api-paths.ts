@@ -7,11 +7,6 @@ export const INTERNAL_API = {
     USERS_ONLINE: '/api/v1/internal/users/online',
     STATS: '/api/v1/internal/stats/online-users',
   },
-  GATEWAY: {
-    MESSAGE_CALLBACK: '/api/internal/message-callback',
-    CONVERSATION_CALLBACK: '/api/internal/conversation-callback',
-    MESSAGE_READ_CALLBACK: '/api/internal/message-read-callback',
-  },
   AUTH: {
     USER_DETAIL: (id: string) => `/users/${id}`,
     USER_SEARCH: '/users/search',

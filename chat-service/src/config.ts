@@ -40,9 +40,6 @@ export const config = {
   authService: {
     url: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
   },
-  gatewayService: {
-    url: process.env.GATEWAY_SERVICE_URL || 'http://api-gateway:3000',
-  },
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
     apiKey: process.env.CLOUDINARY_API_KEY || '',
