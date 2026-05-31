@@ -10,4 +10,10 @@ export const config = {
     chatbot: process.env.CHATBOT_SERVICE_URL || 'http://localhost:3005',
     realtime: process.env.REALTIME_SERVICE_URL || 'http://localhost:8080',
   },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
+    reconnectMaxDelayMs: Number(process.env.REDIS_RECONNECT_MAX_DELAY_MS) || 30000,
+  },
 };

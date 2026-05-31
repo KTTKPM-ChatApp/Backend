@@ -13,6 +13,8 @@ import multer from 'multer';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+import { startRedisConnection } from './redis';
+import { RedisBackedRateLimitStore } from './rate-limit-store';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -33,6 +35,7 @@ function createLimiter(name: string, windowMs: number, max: number, message: str
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: rateLimitKey,
+    store: new RedisBackedRateLimitStore(name),
     message: { success: false, message },
     handler: (req, res) => {
       console.warn(`[RateLimit] ${name} blocked ${rateLimitKey(req)} ${req.method} ${req.originalUrl}`);
@@ -269,6 +272,8 @@ app.get('/api/presence/online', authenticate, (req, res) =>
   proxy(req, res, `${config.services.auth}/api/presence/online`, true));
 
 async function bootstrap() {
+  startRedisConnection();
+
   const httpServer = createServer(app);
 
   const apollo = new ApolloServer({
