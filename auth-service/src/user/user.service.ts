@@ -30,7 +30,7 @@ export async function getAll() {
 export async function search(q: string, limit = 20, offset = 0, currentUserId?: string) {
   const users = await userRepo()
     .createQueryBuilder('u')
-    .where('u.display_name LIKE :q AND u.is_active = true', { q: `%${q}%` })
+    .where('(u.display_name LIKE :q OR u.username LIKE :q OR u.email LIKE :q) AND u.is_active = true', { q: `%${q}%` })
     .limit(limit).offset(offset)
     .getMany();
 
