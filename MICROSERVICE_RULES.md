@@ -1,9 +1,10 @@
 # Nguyên tắc Microservice Architecture
 
-## 1. API Gateway là Single Entry Point duy nhất
-- Mọi request từ **external client** (FE, mobile) phải qua API Gateway
-- Không expose port service ra ngoài trực tiếp (chỉ Gateway publish port)
-- Các service chỉ listen trên internal network (Docker internal)
+## 1. Edge và API Gateway
+- Nginx là public edge duy nhất được publish ra host.
+- Mọi request HTTP API từ **external client** (FE, mobile) phải qua API Gateway.
+- Realtime WebSocket/STOMP đi qua Nginx và được route trực tiếp tới Realtime Service.
+- Không expose port service ra ngoài trực tiếp; các service chỉ listen trên internal network (Docker internal).
 
 ## 2. Gateway không gọi trực tiếp Infrastructure
 - ❌ Sai: Gateway → Redis / DB / Cloudinary / S3 / ...
@@ -30,10 +31,10 @@
 - Service A muốn data của Service B → gọi REST API, không query trực tiếp DB
 
 ## 6. Shared state qua Redis
-- Presence/online status → Auth Service quản lý Redis
-- Socket ID mapping → API Gateway giữ local (in-memory, gắn với Socket.IO instance)
-- Message cache → Chat Service quản lý Redis
-- Mỗi service có Redis connection riêng (hoặc dùng chung Redis instance với key prefix)
+- Presence/online status → Realtime Service quản lý Redis cho WebSocket sessions; Auth Service có thể cung cấp presence API nếu cần.
+- Message cache → Chat Service quản lý Redis.
+- API Gateway không kết nối Redis/DB/Cloudinary; rate limit ở Gateway dùng local in-memory store hoặc đẩy xuống edge/service chuyên trách.
+- Mỗi service có Redis connection riêng (hoặc dùng chung Redis instance với key prefix).
 
 ## 7. Cấu hình qua Environment Variables
 - Mọi config phải qua env vars, không hardcode
@@ -56,9 +57,9 @@
 - Dùng `process.on('SIGTERM', async () => { ... })`
 
 ## 11. Service không publish port ra ngoài
-- Chỉ API Gateway publish port ra host (Docker: `ports: - "4321:3000"`)
-- Service khác chỉ communication qua internal Docker network
-- Nếu cần expose để debug -> ghi chú rõ trong docker-compose
+- Chỉ Nginx publish port ra host (Docker: `ports: - "4321:80"` hoặc map qua biến `NGINX_HTTP_PORT`).
+- Service khác chỉ communication qua internal Docker network.
+- Nếu cần expose để debug -> ghi chú rõ trong docker-compose.
 
 ## 12. Service URL qua Environment Variables
 - Khi Service A gọi Service B, URL của B phải qua env var

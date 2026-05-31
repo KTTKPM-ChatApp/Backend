@@ -23,24 +23,22 @@ export class RedisBackedRateLimitStore implements Store {
       return this.fallback.get(key);
     }
 
-    let rawHits: string | null;
-    let ttlMs: number;
     try {
       const redisKey = this.redisKey(key);
-      [rawHits, ttlMs] = await Promise.all([
+      const [rawHits, ttlMs] = await Promise.all([
         client.get(redisKey),
         client.pTTL(redisKey),
       ]);
+
+      if (!rawHits) return undefined;
+
+      return {
+        totalHits: Number(rawHits),
+        resetTime: new Date(Date.now() + Math.max(ttlMs, 0)),
+      };
     } catch {
       return this.fallback.get(key);
     }
-
-    if (!rawHits) return undefined;
-
-    return {
-      totalHits: Number(rawHits),
-      resetTime: new Date(Date.now() + Math.max(ttlMs, 0)),
-    };
   }
 
   async increment(key: string): Promise<ClientRateLimitInfo> {

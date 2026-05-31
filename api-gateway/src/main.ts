@@ -10,12 +10,10 @@ import { config } from './config';
 import { authenticate, AuthReq } from './middleware';
 import { proxy } from './proxy';
 import multer from 'multer';
-import { setupSocketIO, notifyConversation, notifyNewConversation, notifyMessageRead } from './socket-handler';
-import { generateCloudinarySignature } from './cloudinary';
-import { connectRedis } from './redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+import { startRedisConnection } from './redis';
 import { RedisBackedRateLimitStore } from './rate-limit-store';
 
 const upload = multer({
@@ -269,54 +267,13 @@ app.post('/api/media/cloudinary-sign', authenticate, uploadLimiter, (req, res) =
 // Media upload routes (protected)
 app.post('/api/media/upload', authenticate, uploadLimiter, upload.single('file'), (req, res) => proxy(req, res, `${config.services.chat}/conversations/media/upload`, true));
 
-// Internal callback for chat-service to push real-time notifications
-app.post('/api/internal/message-callback', async (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, message } = req.body;
-  if (conversationId && message) {
-    await notifyConversation(conversationId, message);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for new conversation created
-app.post('/api/internal/conversation-callback', async (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversation } = req.body;
-  if (conversation) {
-    await notifyNewConversation(conversation);
-  }
-  res.json({ ok: true });
-});
-
-// Internal callback for message read event
-app.post('/api/internal/message-read-callback', async (req, res) => {
-  const apiKey = req.headers['x-internal-api-key'];
-  if (!apiKey || apiKey !== config.internalApiKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  const { conversationId, userId, messageId } = req.body;
-  if (conversationId && userId && messageId) {
-    await notifyMessageRead(conversationId, userId, messageId);
-  }
-  res.json({ ok: true });
-});
-
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
 app.get('/api/presence/online', authenticate, (req, res) =>
   proxy(req, res, `${config.services.auth}/api/presence/online`, true));
 
 async function bootstrap() {
-  await connectRedis();
+  startRedisConnection();
+
   const httpServer = createServer(app);
 
   const apollo = new ApolloServer({
@@ -336,8 +293,6 @@ async function bootstrap() {
       context: async ({ req }: { req: express.Request }) => ({ userId: (req as AuthReq).userId }),
     } as any),
   );
-
-  setupSocketIO(httpServer);
 
   // Proxy STOMP/SockJS (/ws) → realtime-service
   app.use('/ws', createProxyMiddleware({
