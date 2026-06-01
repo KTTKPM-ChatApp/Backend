@@ -16,4 +16,9 @@ export const config = {
     password: process.env.REDIS_PASSWORD || '',
     reconnectMaxDelayMs: Number(process.env.REDIS_RECONNECT_MAX_DELAY_MS) || 30000,
   },
+  proxy: {
+    timeoutMs: Number(process.env.GATEWAY_PROXY_TIMEOUT_MS) || 90000,
+    retryAttempts: Number(process.env.GATEWAY_PROXY_RETRY_ATTEMPTS) || 2,
+    retryDelayMs: Number(process.env.GATEWAY_PROXY_RETRY_DELAY_MS) || 3000,
+  },
 };
