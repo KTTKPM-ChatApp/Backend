@@ -75,6 +75,7 @@ public class RedisPresenceRepository implements PresenceRepository {
         if (userId == null || userId.isBlank()) return;
         redisTemplate.expire(sessionUserKey(sessionId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
         redisTemplate.expire(userSessionsKey(userId), SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+        redisTemplate.expire(ONLINE_USERS_KEY, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
     }
 
     @Override

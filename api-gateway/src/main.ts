@@ -47,7 +47,7 @@ function createLimiter(name: string, windowMs: number, max: number, message: str
 const apiLimiter = createLimiter(
   'api',
   15 * 60 * 1000,
-  Number(process.env.RATE_LIMIT_API_MAX) || 300,
+  Number(process.env.RATE_LIMIT_API_MAX) || 15000,
   'Too many requests, please try again later',
 );
 
