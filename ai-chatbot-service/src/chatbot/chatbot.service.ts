@@ -1,7 +1,7 @@
 import { AppDataSource } from '../db';
 import { ChatbotConversation } from './chatbot-conversation.entity';
 import { ChatbotMessage } from './chatbot-message.entity';
-import { askGemini } from './gemini.service';
+import { askAI } from './ai.service';
 
 const convRepo = () => AppDataSource.getRepository(ChatbotConversation);
 const msgRepo = () => AppDataSource.getRepository(ChatbotMessage);
@@ -65,7 +65,7 @@ export async function sendMessage(userId: string, conversationId: string, conten
   });
 
   // 3. Delegation of AI Response to the specialized gemini.service
-  const aiResult = await askGemini(history, userId);
+  const aiResult = await askAI(history, userId);
 
   // 4. Save assistant message
   const assistantMsg = msgRepo().create({

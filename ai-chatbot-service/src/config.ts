@@ -12,10 +12,11 @@ export const config = {
     connectRetryDelayMs: Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000,
     connectRetryMaxDelayMs: Number(process.env.DB_CONNECT_RETRY_MAX_DELAY_MS) || 30000,
   },
-  gemini: {
-    apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+  ai: {
+    provider: process.env.AI_PROVIDER || 'openrouter',
+    apiKey: process.env.AI_API_KEY || process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY || '',
+    model: process.env.AI_MODEL || process.env.OPENROUTER_MODEL || process.env.GEMINI_MODEL || 'openrouter/free',
+    baseUrl: process.env.AI_BASE_URL || '',
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'default-secret',
