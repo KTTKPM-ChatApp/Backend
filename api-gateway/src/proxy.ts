@@ -6,7 +6,7 @@ import { AuthReq } from './middleware';
 
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
-const proxyTimeoutMs = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS) || 10000;
+const proxyTimeoutMs = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS) || 90000;
 
 export async function proxy(req: Request | AuthReq, res: Response, url: string, addUserId = false) {
   try {

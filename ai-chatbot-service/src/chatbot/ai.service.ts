@@ -161,7 +161,16 @@ export async function askAI(history: ChatbotMessage[], userId: string): Promise<
   const model = config.ai.model;
   const baseUrl = config.ai.baseUrl;
 
+  console.log('[AI Debug] Loaded configuration from environment:', {
+    provider,
+    model,
+    baseUrl,
+    apiKeyLength: apiKey ? apiKey.length : 0,
+    apiKeySnippet: apiKey ? apiKey.substring(0, 12) + '...' : 'none',
+  });
+
   if (!apiKey) {
+    console.warn('[AI Debug] Blocked: AI_API_KEY is missing or empty!');
     return { text: 'AI API Key is not configured. Please set AI_API_KEY in environment variables.' };
   }
 
@@ -174,6 +183,8 @@ export async function askAI(history: ChatbotMessage[], userId: string): Promise<
       resolvedProvider = 'openrouter';
     }
   }
+
+  console.log(`[AI Debug] Routing request using provider: ${resolvedProvider}`);
 
   if (resolvedProvider === 'gemini') {
     return askGeminiDirect(history, userId, apiKey, model, baseUrl || 'https://generativelanguage.googleapis.com/v1beta');
