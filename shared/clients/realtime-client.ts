@@ -186,6 +186,38 @@ export class RealtimeClientService extends BaseClient {
     }
   }
 
+  async notifyGroupCallStarted(payload: {
+    sessionId: string;
+    conversationId: string;
+    sfuRoomId: string;
+    startedBy: string;
+    hostId: string;
+    memberIds: string[];
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/calls/group/notify',
+        headers: this.headers,
+        data: {
+          session_id: payload.sessionId,
+          conversation_id: payload.conversationId,
+          sfu_room_id: payload.sfuRoomId,
+          started_by: payload.startedBy,
+          host_id: payload.hostId,
+          member_ids: payload.memberIds,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify group call:`, err.message);
+    }
+  }
+
   async notifySystemEvent(payload: SystemEventPayload, createdAt?: string): Promise<void> {
     if (!this.realtimeBaseUrl) {
       console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
@@ -208,6 +240,36 @@ export class RealtimeClientService extends BaseClient {
       });
     } catch (err: any) {
       console.warn(`[RealtimeClient] Failed to notify system event:`, err.message);
+    }
+  }
+
+  async notifyCallStarted(payload: {
+    callId: string;
+    conversationId: string;
+    startedBy: string;
+    type: string;
+    memberIds: string[];
+  }): Promise<void> {
+    if (!this.realtimeBaseUrl) {
+      console.log('[RealtimeClient] REALTIME_SERVICE_URL not configured, skipping');
+      return;
+    }
+    try {
+      await this.request({
+        method: 'POST',
+        path: '/api/v1/internal/calls/notify',
+        headers: this.headers,
+        data: {
+          call_id: payload.callId,
+          conversation_id: payload.conversationId,
+          started_by: payload.startedBy,
+          type: payload.type,
+          member_ids: payload.memberIds,
+        },
+        timeout: 3000,
+      });
+    } catch (err: any) {
+      console.warn(`[RealtimeClient] Failed to notify call started:`, err.message);
     }
   }
 }

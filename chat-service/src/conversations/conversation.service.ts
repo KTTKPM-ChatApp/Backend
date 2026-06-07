@@ -1,14 +1,16 @@
 import { v4 as uuid } from 'uuid';
-import { 
-  AppDataSource, 
-  Conversation, 
-  ConversationMember, 
+import {
+  AppDataSource,
+  Conversation,
+  ConversationMember,
   Message,
   ConversationSummary,
   ConversationInvite,
   ConversationPoll,
   PollVote,
   ConversationCall,
+  GroupCallSession,
+  GroupCallParticipant,
   ConversationSettings,
   UserPinnedConversation,
   PollOption,
@@ -18,7 +20,7 @@ import {
   ConversationFeatures
 } from '../db';
 import { fetchUsersInfo, fetchUserInfo } from '../auth-client';
-import { notifyNewConversation, notifySystemEvent } from '../notifier';
+import { notifyNewConversation, notifySystemEvent, notifyCallStarted, notifyGroupCallStarted } from '../notifier';
 import { cacheGet, cacheSet, cacheDeletePattern, CONVERSATION_CACHE_TTL } from '../redis';
 
 function invalidateConversationListCache(memberIds: string[]) {
@@ -78,6 +80,8 @@ const inviteRepo = () => AppDataSource.getRepository(ConversationInvite);
 const pollRepo = () => AppDataSource.getRepository(ConversationPoll);
 const voteRepo = () => AppDataSource.getRepository(PollVote);
 const callRepo = () => AppDataSource.getRepository(ConversationCall);
+const groupSessionRepo = () => AppDataSource.getRepository(GroupCallSession);
+const groupParticipantRepo = () => AppDataSource.getRepository(GroupCallParticipant);
 const settingsRepo = () => AppDataSource.getRepository(ConversationSettings);
 const pinnedRepo = () => AppDataSource.getRepository(UserPinnedConversation);
 
@@ -1520,13 +1524,267 @@ export async function closePoll(
 // 5. Quản lý Call (Cuộc gọi)
 
 export async function getIceServers() {
-  // Mock ICE servers - in production, configure with real TURN/STUN servers
   return {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: process.env.TURN_URL || 'turn:coturn:3478',
+        username: process.env.TURN_USERNAME || 'zalo',
+        credential: process.env.TURN_CREDENTIAL || 'zalosecret',
+      },
+    ],
   };
+}
+
+export async function startCall(
+  userId: string,
+  conversationId: string,
+  type: 'AUDIO' | 'VIDEO'
+) {
+  await checkMembership(userId, conversationId);
+
+  const activeCall = await callRepo()
+    .createQueryBuilder('c')
+    .where('c.conversation_id = :conversationId', { conversationId })
+    .andWhere('c.status = :status', { status: 'ONGOING' })
+    .getOne();
+
+  if (activeCall) {
+    throw new Error('There is already an active call in this conversation');
+  }
+
+  const callId = uuid();
+  const now = new Date();
+
+  const call = callRepo().create({
+    id: callId,
+    conversationId,
+    startedBy: userId,
+    type,
+    status: 'ONGOING',
+    startedAt: now,
+    participants: [{ userId, joinedAt: now }],
+  });
+  await callRepo().save(call);
+
+  notifyCallStarted({
+    callId,
+    conversationId,
+    startedBy: userId,
+    type,
+    memberIds: (await memberRepo().findBy({ conversationId })).map(m => m.userId),
+  }).catch(() => {});
+
+  return call;
+}
+
+export async function joinCall(
+  userId: string,
+  conversationId: string,
+  callId: string
+) {
+  await checkMembership(userId, conversationId);
+
+  const call = await callRepo().findOneBy({ id: callId, conversationId });
+  if (!call) throw new Error('Call not found');
+  if (call.status !== 'ONGOING') throw new Error('Call is not ongoing');
+
+  const participant = call.participants.find(p => p.userId === userId);
+  if (participant) return call;
+
+  call.participants = [...call.participants, { userId, joinedAt: new Date() }];
+  await callRepo().save(call);
+
+  return call;
+}
+
+export async function rejectCall(
+  userId: string,
+  conversationId: string,
+  callId: string
+) {
+  await checkMembership(userId, conversationId);
+
+  const call = await callRepo().findOneBy({ id: callId, conversationId });
+  if (!call) throw new Error('Call not found');
+
+  const rejectedByUser = call.participants.find(p => p.userId === userId);
+
+  if (call.participants.length <= 1 && call.startedBy === userId) {
+    call.status = 'ENDED';
+    call.endedAt = new Date();
+    call.endedBy = userId;
+    call.endReason = 'rejected';
+    await callRepo().save(call);
+  }
+
+  return { message: 'Call rejected' };
+}
+
+// Group Call (SFU-based)
+export async function createGroupCallSession(
+  userId: string,
+  conversationId: string
+) {
+  await checkMembership(userId, conversationId);
+
+  const conversation = await conversationRepo().findOneBy({ id: conversationId });
+  if (!conversation || conversation.type !== 'GROUP') {
+    throw new Error('Group calls are only available in group conversations');
+  }
+
+  const activeSession = await groupSessionRepo()
+    .createQueryBuilder('gs')
+    .where('gs.conversation_id = :conversationId', { conversationId })
+    .andWhere('gs.status = :status', { status: 'ACTIVE' })
+    .getOne();
+
+  if (activeSession) {
+    throw new Error('There is already an active group call in this conversation');
+  }
+
+  const sessionId = uuid();
+  const sfuRoomId = `sfu_room_${conversationId}`;
+  const now = new Date();
+
+  const session = groupSessionRepo().create({
+    id: sessionId,
+    conversationId,
+    hostId: userId,
+    sfuRoomId,
+    status: 'ACTIVE',
+    startedAt: now,
+  });
+  await groupSessionRepo().save(session);
+
+  const participant = groupParticipantRepo().create({
+    id: uuid(),
+    sessionId,
+    userId,
+    sfuPeerId: `${userId}_${sessionId}`,
+    joinedAt: now,
+    isAudioEnabled: true,
+    isVideoEnabled: true,
+  });
+  await groupParticipantRepo().save(participant);
+
+  const allMemberIds = (await memberRepo().findBy({ conversationId })).map(m => m.userId);
+
+  notifyGroupCallStarted({
+    sessionId,
+    conversationId,
+    sfuRoomId,
+    startedBy: userId,
+    hostId: userId,
+    memberIds: allMemberIds,
+  }).catch(() => {});
+
+  return { session, participant };
+}
+
+export async function joinGroupCallSession(
+  userId: string,
+  conversationId: string,
+  sessionId: string
+) {
+  await checkMembership(userId, conversationId);
+
+  const session = await groupSessionRepo().findOneBy({ id: sessionId, conversationId });
+  if (!session) throw new Error('Group call session not found');
+  if (session.status !== 'ACTIVE') throw new Error('Group call is not active');
+
+  const existing = await groupParticipantRepo().findOneBy({ sessionId, userId });
+  if (existing) return { session, participant: existing };
+
+  const participant = groupParticipantRepo().create({
+    id: uuid(),
+    sessionId,
+    userId,
+    sfuPeerId: `${userId}_${sessionId}`,
+    joinedAt: new Date(),
+    isAudioEnabled: true,
+    isVideoEnabled: true,
+  });
+  await groupParticipantRepo().save(participant);
+
+  return { session, participant };
+}
+
+export async function leaveGroupCallSession(
+  userId: string,
+  conversationId: string,
+  sessionId: string
+) {
+  const session = await groupSessionRepo().findOneBy({ id: sessionId, conversationId });
+  if (!session) throw new Error('Group call session not found');
+
+  const participant = await groupParticipantRepo().findOneBy({ sessionId, userId });
+  if (participant) {
+    participant.leftAt = new Date();
+    await groupParticipantRepo().save(participant);
+  }
+
+  if (session.hostId === userId) {
+    const remaining = await groupParticipantRepo().findBy({ sessionId, leftAt: null as any });
+    if (remaining.length === 0) {
+      session.status = 'ENDED';
+      session.endedAt = new Date();
+      await groupSessionRepo().save(session);
+    }
+  }
+
+  return { message: 'Left group call' };
+}
+
+export async function endGroupCallSession(
+  userId: string,
+  conversationId: string,
+  sessionId: string
+) {
+  const session = await groupSessionRepo().findOneBy({ id: sessionId, conversationId });
+  if (!session) throw new Error('Group call session not found');
+
+  const isHost = session.hostId === userId;
+  const isAdmin = (await checkMembership(userId, conversationId)).role === 'OWNER' || 
+                  (await checkMembership(userId, conversationId)).role === 'ADMIN';
+
+  if (!isHost && !isAdmin) {
+    throw new Error('Only the host or admin can end the group call');
+  }
+
+  session.status = 'ENDED';
+  session.endedAt = new Date();
+  await groupSessionRepo().save(session);
+
+  const participants = await groupParticipantRepo().findBy({ sessionId });
+  for (const p of participants) {
+    if (!p.leftAt) {
+      p.leftAt = new Date();
+      await groupParticipantRepo().save(p);
+    }
+  }
+
+  return { message: 'Group call ended' };
+}
+
+export async function getGroupCallSession(
+  userId: string,
+  conversationId: string
+) {
+  await checkMembership(userId, conversationId);
+
+  const session = await groupSessionRepo()
+    .createQueryBuilder('gs')
+    .where('gs.conversation_id = :conversationId', { conversationId })
+    .andWhere('gs.status = :status', { status: 'ACTIVE' })
+    .leftJoinAndSelect('GroupCallParticipant', 'gp', 'gp.session_id = gs.id')
+    .getOne();
+
+  if (!session) return null;
+
+  const participants = await groupParticipantRepo().findBy({ sessionId: session.id });
+  return { session, participants };
 }
 
 export async function getCallHistory(

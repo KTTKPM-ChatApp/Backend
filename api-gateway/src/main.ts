@@ -187,14 +187,30 @@ app.post('/api/conversations/:conversationId/polls/:pollId/close', authenticate,
 
 // 5. Quản lý Call (Cuộc gọi)
 
+// 5.1 Bắt đầu cuộc gọi
+app.post('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
+
 // 5.2 Lịch sử cuộc gọi
 app.get('/api/conversations/:conversationId/calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls`, true));
 
 // 5.3 Trạng thái cuộc gọi
 app.get('/api/conversations/:conversationId/call-state', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/call-state`, true));
 
-// 5.4 Kết thúc cuộc gọi
+// 5.4 Tham gia cuộc gọi
+app.post('/api/conversations/:conversationId/calls/:callId/join', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/join`, true));
+
+// 5.5 Kết thúc cuộc gọi
 app.post('/api/conversations/:conversationId/calls/:callId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/end`, true));
+
+// 5.6 Từ chối cuộc gọi
+app.post('/api/conversations/:conversationId/calls/:callId/reject', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/calls/${req.params.callId}/reject`, true));
+
+// 5.7 Group Call (SFU-based)
+app.post('/api/conversations/:conversationId/group-calls', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-calls`, true));
+app.post('/api/conversations/:conversationId/group-calls/:sessionId/join', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-calls/${req.params.sessionId}/join`, true));
+app.post('/api/conversations/:conversationId/group-calls/:sessionId/leave', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-calls/${req.params.sessionId}/leave`, true));
+app.post('/api/conversations/:conversationId/group-calls/:sessionId/end', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-calls/${req.params.sessionId}/end`, true));
+app.get('/api/conversations/:conversationId/group-calls/active', authenticate, (req, res) => proxy(req, res, `${config.services.chat}/conversations/${req.params.conversationId}/group-calls/active`, true));
 
 // 6. Các chức năng khác
 

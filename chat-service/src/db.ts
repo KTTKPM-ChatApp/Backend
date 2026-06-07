@@ -144,12 +144,43 @@ export class ConversationCall {
   @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
   @Column('varchar', { length: 36, name: 'started_by' }) startedBy!: string;
   @Column('varchar', { length: 20, name: 'type' }) type!: 'AUDIO' | 'VIDEO';
-  @Column('varchar', { length: 20, name: 'status', default: 'ONGOING' }) status!: 'ONGOING' | 'ENDED';
+  @Column('varchar', { length: 20, name: 'status', default: 'ONGOING' }) status!: 'ONGOING' | 'ENDED' | 'MISSED' | 'REJECTED' | 'CANCELLED' | 'FAILED';
   @Column('datetime', { name: 'started_at' }) startedAt!: Date;
   @Column('datetime', { name: 'ended_at', nullable: true }) endedAt?: Date;
   @Column('varchar', { length: 36, name: 'ended_by', nullable: true }) endedBy?: string;
   @Column('text', { name: 'end_reason', nullable: true }) endReason?: string;
   @Column('json', { name: 'participants' }) participants!: CallParticipant[];
+  @Column('int', { name: 'duration_seconds', nullable: true }) durationSeconds?: number;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('group_call_sessions')
+@Index(['conversationId', 'status'])
+export class GroupCallSession {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 36, name: 'conversation_id' }) conversationId!: string;
+  @Column('varchar', { length: 36, name: 'host_id' }) hostId!: string;
+  @Column('varchar', { length: 64, name: 'sfu_room_id' }) sfuRoomId!: string;
+  @Column('varchar', { length: 20, name: 'status', default: 'ACTIVE' }) status!: 'ACTIVE' | 'ENDED';
+  @Column('datetime', { name: 'started_at' }) startedAt!: Date;
+  @Column('datetime', { name: 'ended_at', nullable: true }) endedAt?: Date;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+  @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
+}
+
+@Entity('group_call_participants')
+@Index(['sessionId', 'userId'])
+export class GroupCallParticipant {
+  @PrimaryColumn('varchar', { length: 36 }) id!: string;
+  @Column('varchar', { length: 36, name: 'session_id' }) sessionId!: string;
+  @Column('varchar', { length: 36, name: 'user_id' }) userId!: string;
+  @Column('varchar', { length: 64, name: 'sfu_peer_id' }) sfuPeerId!: string;
+  @Column('datetime', { name: 'joined_at' }) joinedAt!: Date;
+  @Column('datetime', { name: 'left_at', nullable: true }) leftAt?: Date;
+  @Column('boolean', { name: 'is_audio_enabled', default: true }) isAudioEnabled!: boolean;
+  @Column('boolean', { name: 'is_video_enabled', default: true }) isVideoEnabled!: boolean;
+  @Column('boolean', { name: 'is_screen_sharing', default: false }) isScreenSharing!: boolean;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @CreateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }
@@ -312,6 +343,8 @@ function buildDataSource(): DataSourceOptions {
       ConversationPoll,
       PollVote,
       ConversationCall,
+      GroupCallSession,
+      GroupCallParticipant,
       ConversationSettings,
       UserPinnedConversation,
       MessageRead,

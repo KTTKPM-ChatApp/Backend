@@ -6,6 +6,8 @@ export const INTERNAL_API = {
     SYSTEM_EVENT: '/api/v1/internal/events/system',
     USERS_ONLINE: '/api/v1/internal/users/online',
     STATS: '/api/v1/internal/stats/online-users',
+    NOTIFY_CALL: '/api/v1/internal/calls/notify',
+    NOTIFY_GROUP_CALL: '/api/v1/internal/calls/group/notify',
   },
   AUTH: {
     USER_DETAIL: (id: string) => `/users/${id}`,

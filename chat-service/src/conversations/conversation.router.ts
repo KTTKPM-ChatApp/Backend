@@ -631,6 +631,29 @@ router.post('/:conversationId/polls/:pollId/close',
 
 // 5. Quản lý Call (Cuộc gọi)
 
+// 5.1 Bắt đầu cuộc gọi
+router.post('/:conversationId/calls',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    body('type').isIn(['AUDIO', 'VIDEO']),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const { type } = req.body;
+      const result = await conversationService.startCall(
+        req.userId!,
+        req.params.conversationId,
+        type
+      );
+      res.status(201).json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
 // 5.2 Lịch sử cuộc gọi
 router.get('/:conversationId/calls',
   authenticate,
@@ -677,7 +700,29 @@ router.get('/:conversationId/call-state',
   }
 );
 
-// 5.4 Kết thúc cuộc gọi
+// 5.4 Tham gia cuộc gọi
+router.post('/:conversationId/calls/:callId/join',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('callId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.joinCall(
+        req.userId!,
+        req.params.conversationId,
+        req.params.callId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.5 Kết thúc cuộc gọi
 router.post('/:conversationId/calls/:callId/end',
   authenticate,
   [
@@ -698,6 +743,139 @@ router.post('/:conversationId/calls/:callId/end',
       res.json(result);
     } catch (e: any) {
       res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.6 Từ chối cuộc gọi
+router.post('/:conversationId/calls/:callId/reject',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('callId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.rejectCall(
+        req.userId!,
+        req.params.conversationId,
+        req.params.callId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.7 Group Call (SFU-based)
+
+// 5.7.1 Tạo group call session
+router.post('/:conversationId/group-calls',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.createGroupCallSession(
+        req.userId!,
+        req.params.conversationId
+      );
+      res.status(201).json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  }
+);
+
+// 5.7.2 Tham gia group call
+router.post('/:conversationId/group-calls/:sessionId/join',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('sessionId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.joinGroupCallSession(
+        req.userId!,
+        req.params.conversationId,
+        req.params.sessionId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.7.3 Rời group call
+router.post('/:conversationId/group-calls/:sessionId/leave',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('sessionId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.leaveGroupCallSession(
+        req.userId!,
+        req.params.conversationId,
+        req.params.sessionId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.7.4 Kết thúc group call
+router.post('/:conversationId/group-calls/:sessionId/end',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+    param('sessionId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.endGroupCallSession(
+        req.userId!,
+        req.params.conversationId,
+        req.params.sessionId
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(403).json({ message: e.message });
+    }
+  }
+);
+
+// 5.7.5 Lấy thông tin group call đang active
+router.get('/:conversationId/group-calls/active',
+  authenticate,
+  [
+    param('conversationId').isUUID(),
+  ],
+  validate,
+  async (req: AuthReq, res: Response) => {
+    try {
+      const result = await conversationService.getGroupCallSession(
+        req.userId!,
+        req.params.conversationId
+      );
+      if (!result) {
+        return res.status(404).json({ message: 'No active group call' });
+      }
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
     }
   }
 );

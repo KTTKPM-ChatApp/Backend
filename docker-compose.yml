@@ -325,6 +325,30 @@ services:
       timeout: 5s
       retries: 5
 
+  sfu-service:
+    build:
+      context: ./sfu-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SFU_PORT: 4000
+      SFU_LISTEN_IP: 0.0.0.0
+      SFU_ANNOUNCED_IP: ${SFU_ANNOUNCED_IP:-127.0.0.1}
+      SFU_MEDIA_PORT_MIN: 40000
+      SFU_MEDIA_PORT_MAX: 49999
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ""
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    expose:
+      - "4000"
+    ports:
+      - "40000-49999:40000-49999/udp"
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -333,6 +357,8 @@ services:
         condition: service_healthy
       realtime-service:
         condition: service_healthy
+      sfu-service:
+        condition: service_started
     ports:
       - "${NGINX_HTTP_PORT:-4321}:80"
     volumes:
@@ -342,6 +368,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  coturn:
+    image: instrumentisto/coturn:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    expose:
+      - "3478"
+      - "5349"
+      - "3478/udp"
+      - "5349/udp"
 
   ngrok:
     image: ngrok/ngrok:latest

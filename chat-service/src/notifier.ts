@@ -51,3 +51,24 @@ export async function notifyReactionRemoved(payload: {
 export async function notifySystemEvent(payload: SystemEventPayload, createdAt?: string): Promise<void> {
   await realtimeClient.notifySystemEvent(payload, createdAt);
 }
+
+export async function notifyCallStarted(payload: {
+  callId: string;
+  conversationId: string;
+  startedBy: string;
+  type: string;
+  memberIds: string[];
+}): Promise<void> {
+  await realtimeClient.notifyCallStarted(payload);
+}
+
+export async function notifyGroupCallStarted(payload: {
+  sessionId: string;
+  conversationId: string;
+  sfuRoomId: string;
+  startedBy: string;
+  hostId: string;
+  memberIds: string[];
+}): Promise<void> {
+  await realtimeClient.notifyGroupCallStarted(payload);
+}

@@ -1,6 +1,8 @@
 package chatapp.realtimeservice.controller;
 
 import chatapp.realtimeservice.dto.ApiResponse;
+import chatapp.realtimeservice.dto.CallNotificationRequest;
+import chatapp.realtimeservice.dto.GroupCallNotificationRequest;
 import chatapp.realtimeservice.dto.ConversationCreatedRequest;
 import chatapp.realtimeservice.dto.HealthCheckResponse;
 import chatapp.realtimeservice.dto.MessageDeletedRequest;
@@ -260,6 +262,67 @@ public class RealtimeController {
             logger.error("Failed to broadcast new conversation notification: {}", ex.getMessage(), ex);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to broadcast new conversation: " + ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/internal/calls/notify")
+    public ResponseEntity<ApiResponse<Void>> notifyCallStarted(
+            @RequestBody CallNotificationRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (isInternalApiKeyInvalid(apiKey)) {
+            logger.warn("Unauthorized internal call notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing call notification: {} in conv {} by {} (type: {})",
+                request.callId(), request.conversationId(), request.startedBy(), request.type());
+
+        try {
+            messageBroadcastService.broadcastCallNotification(
+                    request.conversationId(),
+                    request.callId(),
+                    request.startedBy(),
+                    request.type(),
+                    request.memberIds()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Call notification broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast call notification: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast call notification: " + ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/internal/calls/group/notify")
+    public ResponseEntity<ApiResponse<Void>> notifyGroupCallStarted(
+            @RequestBody GroupCallNotificationRequest request,
+            @RequestHeader(value = "x-internal-api-key", required = false) String apiKey) {
+
+        if (isInternalApiKeyInvalid(apiKey)) {
+            logger.warn("Unauthorized internal group call notification attempt");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid internal API key"));
+        }
+
+        logger.info("Processing group call notification: session {} in conv {} by {}",
+                request.sessionId(), request.conversationId(), request.startedBy());
+
+        try {
+            messageBroadcastService.broadcastGroupCallNotification(
+                    request.conversationId(),
+                    request.sessionId(),
+                    request.sfuRoomId(),
+                    request.startedBy(),
+                    request.hostId(),
+                    request.memberIds()
+            );
+            return ResponseEntity.ok(ApiResponse.ok(null, "Group call notification broadcast successfully"));
+        } catch (Exception ex) {
+            logger.error("Failed to broadcast group call notification: {}", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to broadcast group call notification: " + ex.getMessage()));
         }
     }
 

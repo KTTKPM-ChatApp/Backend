@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MessageBroadcastService {
@@ -300,6 +301,79 @@ public class MessageBroadcastService {
             Object metadata,
             String createdAt
     ) {
+    }
+
+    public void broadcastCallSignal(String conversationId, Map<String, Object> signal) {
+        String destination = "/topic/conv." + conversationId + "/call";
+        try {
+            simpMessagingTemplate.convertAndSend(destination, signal);
+            logger.debug("Call signal broadcast in conv {}: {}", conversationId, signal.get("type"));
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast call signal in conv {}: {}", conversationId, ex.getMessage());
+        }
+    }
+
+    public void broadcastCallNotification(String conversationId, String callId, String startedBy, String type, List<String> memberIds) {
+        Map<String, Object> notification = Map.of(
+            "type", "incoming_call",
+            "call_id", callId,
+            "conversation_id", conversationId,
+            "started_by", startedBy,
+            "call_type", type
+        );
+
+        String destination = "/topic/conv." + conversationId + "/call";
+        try {
+            simpMessagingTemplate.convertAndSend(destination, notification);
+            logger.info("Call notification broadcast in conv {} by {} (type: {})", conversationId, startedBy, type);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast call notification in conv {}: {}", conversationId, ex.getMessage());
+        }
+
+        for (String memberId : memberIds) {
+            if (memberId == null || memberId.isBlank() || memberId.equals(startedBy)) continue;
+            try {
+                simpMessagingTemplate.convertAndSendToUser(
+                    memberId,
+                    "/queue/calls",
+                    notification
+                );
+            } catch (Exception ex) {
+                logger.warn("Failed to send call notification to user {}: {}", memberId, ex.getMessage());
+            }
+        }
+    }
+
+    public void broadcastGroupCallNotification(String conversationId, String sessionId, String sfuRoomId, String startedBy, String hostId, List<String> memberIds) {
+        Map<String, Object> notification = Map.of(
+            "type", "incoming_group_call",
+            "session_id", sessionId,
+            "sfu_room_id", sfuRoomId,
+            "conversation_id", conversationId,
+            "started_by", startedBy,
+            "host_id", hostId
+        );
+
+        String destination = "/topic/conv." + conversationId + "/call";
+        try {
+            simpMessagingTemplate.convertAndSend(destination, notification);
+            logger.info("Group call notification broadcast in conv {} by {} (session: {})", conversationId, startedBy, sessionId);
+        } catch (Exception ex) {
+            logger.warn("Failed to broadcast group call notification in conv {}: {}", conversationId, ex.getMessage());
+        }
+
+        for (String memberId : memberIds) {
+            if (memberId == null || memberId.isBlank() || memberId.equals(startedBy)) continue;
+            try {
+                simpMessagingTemplate.convertAndSendToUser(
+                    memberId,
+                    "/queue/calls",
+                    notification
+                );
+            } catch (Exception ex) {
+                logger.warn("Failed to send group call notification to user {}: {}", memberId, ex.getMessage());
+            }
+        }
     }
 }
 

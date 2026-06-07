@@ -1,7 +1,4 @@
-import {
-  callRepo,
-  checkMembership,
-} from '../shared/conversation-context';
+import { callRepo, checkMembership } from '../shared/conversation-context';
 
 export async function endCall(
   userId: string,

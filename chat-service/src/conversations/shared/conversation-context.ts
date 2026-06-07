@@ -8,6 +8,8 @@ import {
   ConversationPoll,
   ConversationSettings,
   ConversationSummary,
+  GroupCallSession,
+  GroupCallParticipant,
   Message,
   PollVote,
   UserPinnedConversation,
@@ -24,6 +26,8 @@ export const inviteRepo = () => AppDataSource.getRepository(ConversationInvite);
 export const pollRepo = () => AppDataSource.getRepository(ConversationPoll);
 export const voteRepo = () => AppDataSource.getRepository(PollVote);
 export const callRepo = () => AppDataSource.getRepository(ConversationCall);
+export const groupSessionRepo = () => AppDataSource.getRepository(GroupCallSession);
+export const groupParticipantRepo = () => AppDataSource.getRepository(GroupCallParticipant);
 export const settingsRepo = () => AppDataSource.getRepository(ConversationSettings);
 export const pinnedRepo = () => AppDataSource.getRepository(UserPinnedConversation);
 

@@ -13,6 +13,8 @@ export const RABBITMQ = {
     USER_OFFLINE: 'chat.user.offline',
     USER_CREATED: 'user.created',
     USER_UPDATED: 'user.updated',
+    CALL_STARTED: 'chat.call.started',
+    CALL_ENDED: 'chat.call.ended',
   } as const,
 } as const;
 
