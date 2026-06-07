@@ -324,8 +324,9 @@ public class MessageBroadcastService {
 
         String destination = "/topic/conv." + conversationId + "/call";
         try {
-            simpMessagingTemplate.convertAndSend(destination, notification);
-            logger.info("Call notification broadcast in conv {} by {} (type: {})", conversationId, startedBy, type);
+            // Don't send incoming_call to the caller themselves - they already know they made the call
+            // Only send the SDP offer to the topic (handled separately by call signal broadcasting)
+            logger.info("Call notification prepared for conv {} by {} (type: {})", conversationId, startedBy, type);
         } catch (Exception ex) {
             logger.warn("Failed to broadcast call notification in conv {}: {}", conversationId, ex.getMessage());
         }
