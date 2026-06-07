@@ -357,8 +357,6 @@ services:
         condition: service_healthy
       realtime-service:
         condition: service_healthy
-      sfu-service:
-        condition: service_started
     ports:
       - "${NGINX_HTTP_PORT:-4321}:80"
     volumes:

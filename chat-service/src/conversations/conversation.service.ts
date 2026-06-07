@@ -1551,7 +1551,20 @@ export async function startCall(
     .getOne();
 
   if (activeCall) {
-    throw new Error('There is already an active call in this conversation');
+    // Safety net: auto-end stale calls from failed cleanup
+    // Stale = only caller participant OR older than 60s with no answer
+    const hasOtherParticipants = activeCall.participants.some(p => p.userId !== userId);
+    const ageSeconds = (Date.now() - new Date(activeCall.startedAt).getTime()) / 1000;
+    if (!hasOtherParticipants || ageSeconds > 60) {
+      await callRepo().update(activeCall.id, {
+        status: 'FAILED',
+        endedAt: new Date(),
+        endedBy: userId,
+        endReason: 'auto-ended: stale call',
+      });
+    } else {
+      throw new Error('There is already an active call in this conversation');
+    }
   }
 
   const callId = uuid();
@@ -1609,10 +1622,10 @@ export async function rejectCall(
   const call = await callRepo().findOneBy({ id: callId, conversationId });
   if (!call) throw new Error('Call not found');
 
-  const rejectedByUser = call.participants.find(p => p.userId === userId);
-
-  if (call.participants.length <= 1 && call.startedBy === userId) {
-    call.status = 'ENDED';
+  // P2P call: if nobody else has joined, rejection ends the call
+  // (this handles both caller cancelling and callee rejecting)
+  if (call.participants.length <= 1) {
+    call.status = 'REJECTED';
     call.endedAt = new Date();
     call.endedBy = userId;
     call.endReason = 'rejected';
@@ -1852,14 +1865,7 @@ export async function endCall(
     throw new Error('Call is not ongoing');
   }
   
-  const member = await checkMembership(userId, conversationId);
-  const canEnd = call.startedBy === userId || 
-                 member.role === 'OWNER' || 
-                 member.role === 'ADMIN';
-  
-  if (!canEnd) {
-    throw new Error('You do not have permission to end this call');
-  }
+  await checkMembership(userId, conversationId);
   
   const endedAt = new Date();
   await callRepo().update(callId, {
