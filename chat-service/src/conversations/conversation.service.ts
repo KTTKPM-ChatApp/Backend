@@ -1868,12 +1868,31 @@ export async function endCall(
   await checkMembership(userId, conversationId);
   
   const endedAt = new Date();
+  const durationSeconds = Math.floor((endedAt.getTime() - call.startedAt.getTime()) / 1000);
   await callRepo().update(callId, {
     status: 'ENDED',
     endedAt,
     endedBy: userId,
-    endReason: reason
+    endReason: reason,
+    duration_seconds: durationSeconds,
   });
+  
+  const callerDisplayNames = await resolveDisplayNames([call.startedBy]);
+  const callerName = callerDisplayNames.get(call.startedBy) || 'Unknown';
+  persistAndNotifySystemEvent(
+    conversationId,
+    call.startedBy,
+    'CALL_LOG',
+    {
+      callId,
+      callType: call.type,
+      duration: durationSeconds,
+      startedAt: call.startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      endedBy: userId,
+      callerName,
+    }
+  );
   
   const updatedCall = await callRepo().findOneBy({ id: callId });
   
