@@ -359,14 +359,6 @@ public class MessageBroadcastService {
         ));
         notification.put("caller_avatar_url", callerAvatarUrl);
 
-        String destination = "/topic/conv." + conversationId + "/call";
-        try {
-            simpMessagingTemplate.convertAndSend(destination, notification);
-            logger.info("Group call notification broadcast in conv {} by {} (session: {})", conversationId, startedBy, sessionId);
-        } catch (Exception ex) {
-            logger.warn("Failed to broadcast group call notification in conv {}: {}", conversationId, ex.getMessage());
-        }
-
         for (String memberId : memberIds) {
             if (memberId == null || memberId.isBlank() || memberId.equals(startedBy)) continue;
             try {
