@@ -8,6 +8,8 @@ public record CallNotificationRequest(
     @JsonProperty("conversation_id") String conversationId,
     @JsonProperty("started_by") String startedBy,
     String type,
+    @JsonProperty("caller_name") String callerName,
+    @JsonProperty("caller_avatar_url") String callerAvatarUrl,
     @JsonProperty("member_ids") List<String> memberIds
 ) {
 }

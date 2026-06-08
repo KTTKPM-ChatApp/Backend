@@ -313,14 +313,16 @@ public class MessageBroadcastService {
         }
     }
 
-    public void broadcastCallNotification(String conversationId, String callId, String startedBy, String type, List<String> memberIds) {
-        Map<String, Object> notification = Map.of(
+    public void broadcastCallNotification(String conversationId, String callId, String startedBy, String type, String callerName, String callerAvatarUrl, List<String> memberIds) {
+        Map<String, Object> notification = new java.util.HashMap<>(Map.of(
             "type", "incoming_call",
             "call_id", callId,
             "conversation_id", conversationId,
             "started_by", startedBy,
-            "call_type", type
-        );
+            "call_type", type,
+            "caller_name", callerName
+        ));
+        notification.put("caller_avatar_url", callerAvatarUrl);
 
         String destination = "/topic/conv." + conversationId + "/call";
         try {
@@ -345,15 +347,17 @@ public class MessageBroadcastService {
         }
     }
 
-    public void broadcastGroupCallNotification(String conversationId, String sessionId, String sfuRoomId, String startedBy, String hostId, List<String> memberIds) {
-        Map<String, Object> notification = Map.of(
+    public void broadcastGroupCallNotification(String conversationId, String sessionId, String sfuRoomId, String startedBy, String hostId, String callerName, String callerAvatarUrl, List<String> memberIds) {
+        Map<String, Object> notification = new java.util.HashMap<>(Map.of(
             "type", "incoming_group_call",
             "session_id", sessionId,
             "sfu_room_id", sfuRoomId,
             "conversation_id", conversationId,
             "started_by", startedBy,
-            "host_id", hostId
-        );
+            "host_id", hostId,
+            "caller_name", callerName
+        ));
+        notification.put("caller_avatar_url", callerAvatarUrl);
 
         String destination = "/topic/conv." + conversationId + "/call";
         try {

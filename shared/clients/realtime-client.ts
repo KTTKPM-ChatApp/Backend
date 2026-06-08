@@ -192,6 +192,8 @@ export class RealtimeClientService extends BaseClient {
     sfuRoomId: string;
     startedBy: string;
     hostId: string;
+    callerName: string;
+    callerAvatarUrl: string | null;
     memberIds: string[];
   }): Promise<void> {
     if (!this.realtimeBaseUrl) {
@@ -209,6 +211,8 @@ export class RealtimeClientService extends BaseClient {
           sfu_room_id: payload.sfuRoomId,
           started_by: payload.startedBy,
           host_id: payload.hostId,
+          caller_name: payload.callerName,
+          caller_avatar_url: payload.callerAvatarUrl,
           member_ids: payload.memberIds,
         },
         timeout: 3000,
@@ -248,6 +252,8 @@ export class RealtimeClientService extends BaseClient {
     conversationId: string;
     startedBy: string;
     type: string;
+    callerName: string;
+    callerAvatarUrl: string | null;
     memberIds: string[];
   }): Promise<void> {
     if (!this.realtimeBaseUrl) {
@@ -264,6 +270,8 @@ export class RealtimeClientService extends BaseClient {
           conversation_id: payload.conversationId,
           started_by: payload.startedBy,
           type: payload.type,
+          caller_name: payload.callerName,
+          caller_avatar_url: payload.callerAvatarUrl,
           member_ids: payload.memberIds,
         },
         timeout: 3000,

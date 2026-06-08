@@ -285,6 +285,8 @@ public class RealtimeController {
                     request.callId(),
                     request.startedBy(),
                     request.type(),
+                    request.callerName(),
+                    request.callerAvatarUrl(),
                     request.memberIds()
             );
             return ResponseEntity.ok(ApiResponse.ok(null, "Call notification broadcast successfully"));
@@ -316,6 +318,8 @@ public class RealtimeController {
                     request.sfuRoomId(),
                     request.startedBy(),
                     request.hostId(),
+                    request.callerName(),
+                    request.callerAvatarUrl(),
                     request.memberIds()
             );
             return ResponseEntity.ok(ApiResponse.ok(null, "Group call notification broadcast successfully"));

@@ -57,6 +57,8 @@ export async function notifyCallStarted(payload: {
   conversationId: string;
   startedBy: string;
   type: string;
+  callerName: string;
+  callerAvatarUrl: string | null;
   memberIds: string[];
 }): Promise<void> {
   await realtimeClient.notifyCallStarted(payload);
@@ -68,6 +70,8 @@ export async function notifyGroupCallStarted(payload: {
   sfuRoomId: string;
   startedBy: string;
   hostId: string;
+  callerName: string;
+  callerAvatarUrl: string | null;
   memberIds: string[];
 }): Promise<void> {
   await realtimeClient.notifyGroupCallStarted(payload);

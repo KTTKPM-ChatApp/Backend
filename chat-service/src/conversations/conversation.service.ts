@@ -1581,11 +1581,14 @@ export async function startCall(
   });
   await callRepo().save(call);
 
+  const callerInfo = await fetchUserInfo(userId);
   notifyCallStarted({
     callId,
     conversationId,
     startedBy: userId,
     type,
+    callerName: callerInfo?.displayName ?? userId,
+    callerAvatarUrl: callerInfo?.avatarUrl ?? null,
     memberIds: (await memberRepo().findBy({ conversationId })).map(m => m.userId),
   }).catch(() => {});
 
@@ -1684,12 +1687,15 @@ export async function createGroupCallSession(
 
   const allMemberIds = (await memberRepo().findBy({ conversationId })).map(m => m.userId);
 
+  const callerInfo = await fetchUserInfo(userId);
   notifyGroupCallStarted({
     sessionId,
     conversationId,
     sfuRoomId,
     startedBy: userId,
     hostId: userId,
+    callerName: callerInfo?.displayName ?? userId,
+    callerAvatarUrl: callerInfo?.avatarUrl ?? null,
     memberIds: allMemberIds,
   }).catch(() => {});
 
@@ -1874,7 +1880,7 @@ export async function endCall(
     endedAt,
     endedBy: userId,
     endReason: reason,
-    duration_seconds: durationSeconds,
+    durationSeconds: durationSeconds,
   });
   
   const callerDisplayNames = await resolveDisplayNames([call.startedBy]);
